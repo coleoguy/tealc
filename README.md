@@ -8,6 +8,8 @@ Tealc is the lab's resident agent — a chat interface backed by a background sc
 - [tealc.html](https://coleoguy.github.io/tealc.html) — live activity feed ("the aquarium"). Watch what Tealc is doing right now.
 - [tealc-build.html](https://coleoguy.github.io/tealc-build.html) — Build Your Own Tealc: a non-code architecture walkthrough of the same system this repo implements.
 
+![Tealc — An Agent Harness for Biology Labs](tealc.png)
+
 ---
 
 ## The vision
