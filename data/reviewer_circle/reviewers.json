@@ -1,0 +1,68 @@
+{
+  "_comment": [
+    "Tealc Reviewer Circle — 6 external evolutionary biology reviewers.",
+    "",
+    "Fields per entry:",
+    "  pseudonym:      Stable public label. Used in DB; NEVER expose email.",
+    "  email:          TODO: Heath fills in 6 hand-picked evolutionary biologists.",
+    "  expertise_tags: Keywords used to match reviewer to domain batch.",
+    "                  Options: chromosome, karyotype, holocentric, sex chromosome,",
+    "                  sex determination, dosage compensation, genome, synteny,",
+    "                  genomics, phylogenomics, diversification, speciation,",
+    "                  macroevolution, evolution.",
+    "  status:         'active' to include in Phase B sends; 'inactive' to skip.",
+    "",
+    "Domain mapping (from expertise_tags):",
+    "  chromosomal_evolution   — chromosome, karyotype, holocentric",
+    "  sex_chromosome_evolution — sex chromosome, sex determination, dosage compensation",
+    "  comparative_genomics    — genome, synteny, genomics, phylogenomics",
+    "  macroevolution          — diversification, speciation, macroevolution, evolution",
+    "",
+    "Cap: 3 items per domain. With 6 reviewers x ~3 items x 4 domains = ~72 reviewer-items.",
+    "SLA: 7 days from email send."
+  ],
+  "reviewers": [
+    {
+      "pseudonym": "Reviewer_A",
+      "email": "TODO",
+      "expertise_tags": ["chromosome evolution", "karyotype", "holocentric"],
+      "status": "active",
+      "notes": "TODO: Heath fills in name and email — should be an evolutionary cytogeneticist"
+    },
+    {
+      "pseudonym": "Reviewer_B",
+      "email": "TODO",
+      "expertise_tags": ["sex chromosome", "sex determination", "dosage compensation"],
+      "status": "active",
+      "notes": "TODO: Heath fills in name and email — should specialize in sex chromosome biology"
+    },
+    {
+      "pseudonym": "Reviewer_C",
+      "email": "TODO",
+      "expertise_tags": ["comparative genomics", "genome evolution", "synteny"],
+      "status": "active",
+      "notes": "TODO: Heath fills in name and email — should be a comparative genomicist"
+    },
+    {
+      "pseudonym": "Reviewer_D",
+      "email": "TODO",
+      "expertise_tags": ["macroevolution", "diversification", "speciation"],
+      "status": "active",
+      "notes": "TODO: Heath fills in name and email — should work on macroevolutionary rates"
+    },
+    {
+      "pseudonym": "Reviewer_E",
+      "email": "TODO",
+      "expertise_tags": ["phylogenomics", "genomics", "comparative genomics"],
+      "status": "active",
+      "notes": "TODO: Heath fills in name and email — second comparative genomics reviewer"
+    },
+    {
+      "pseudonym": "Reviewer_F",
+      "email": "TODO",
+      "expertise_tags": ["chromosome evolution", "karyotype evolution", "holocentric"],
+      "status": "active",
+      "notes": "TODO: Heath fills in name and email — second chromosomal evolution reviewer"
+    }
+  ]
+}

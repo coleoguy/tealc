@@ -1,0 +1,7 @@
+name = "tealc-aquarium"
+main = "aquarium-worker.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "AQUARIUM"
+id = "1c2905c4edc64abb88a516512d031af7"

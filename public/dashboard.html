@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tealc HQ — Blackmon Lab</title>
+  <link rel="stylesheet" href="/public/dashboard.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-name">Blackmon Lab</span>
+      <span class="brand-sub">TEALC HQ</span>
+    </div>
+    <div class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Loading…</span>
+      <span class="status-sep">·</span>
+      <span id="generatedAt"></span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="unified-inbox">Awaiting Review <span class="badge" id="unifiedInboxBadge"></span></button>
+    <button class="tab" data-tab="plate">On your plate <span class="badge" id="plateBadge"></span></button>
+    <button class="tab" data-tab="inbox">Old Inbox <span class="badge" id="inboxBadge"></span></button>
+    <button class="tab" data-tab="projects">Projects</button>
+    <button class="tab" data-tab="activity">What I've been doing</button>
+    <button class="tab" data-tab="control">Control</button>
+    <button class="tab" data-tab="documents">Documents</button>
+    <button class="tab" data-tab="goals">Goals</button>
+    <button class="tab" data-tab="knowledge">Knowledge Map</button>
+    <button class="tab" data-tab="prereg">Prereg Ledger</button>
+    <button class="tab" data-tab="reviewer-circle">Reviewer Circle <span class="badge" id="reviewerCircleBadge"></span></button>
+  </nav>
+
+  <main>
+    <!-- ── Unified Inbox (DEFAULT) ─────────────────────────────────────── -->
+    <section class="tab-content active" id="tab-unified-inbox">
+      <div id="unifiedInboxBanner" class="section"></div>
+      <div id="unifiedInboxFilters" class="section"></div>
+      <div id="unifiedInboxCards"></div>
+      <div id="unifiedInboxEmpty" class="empty" hidden>Inbox zero. Tealc has no items awaiting your review.</div>
+      <div id="unifiedInboxStatus" class="control-status"></div>
+    </section>
+    <section class="tab-content" id="tab-projects">
+      <div id="projectsHeader" class="section"></div>
+      <div id="projectsFilters" class="section"></div>
+      <div id="projectsBlock"></div>
+      <div id="projectsStatus" class="control-status"></div>
+    </section>
+    <section class="tab-content" id="tab-inbox">
+      <div id="inboxHeader" class="section"></div>
+      <div id="inboxHypotheses" class="section"></div>
+      <div id="inboxBriefings" class="section"></div>
+      <div id="inboxDrafts" class="section"></div>
+      <div id="inboxGrants" class="section"></div>
+      <div id="inboxStatus" class="control-status"></div>
+    </section>
+    <section class="tab-content" id="tab-plate">
+      <div id="stalledGoals" class="section"></div>
+      <div id="meetingBriefs" class="section"></div>
+      <div id="draftsUnreviewed" class="section"></div>
+      <div id="reviewInvites" class="section"></div>
+      <div id="hypothesesPending" class="section"></div>
+      <div id="otherBriefings" class="section"></div>
+      <div id="empty" class="empty" hidden>Nothing waiting. Scheduler is doing its thing.</div>
+    </section>
+    <section class="tab-content" id="tab-activity">
+      <div id="schedulerBlock" class="section"></div>
+      <div id="jobsTable" class="section"></div>
+      <div id="ledgerTable" class="section"></div>
+      <div id="costBlock" class="section"></div>
+    </section>
+    <section class="tab-content" id="tab-control">
+      <div id="presetBlock" class="section"></div>
+      <div id="jobModesBlock" class="section"></div>
+      <div id="thresholdsBlock" class="section"></div>
+      <div id="personalityBlock" class="section"></div>
+      <div id="controlStatus" class="control-status"></div>
+    </section>
+    <section class="tab-content" id="tab-documents">
+      <div id="documentsBlock" class="section"></div>
+      <div id="documentsStatus" class="control-status"></div>
+    </section>
+    <section class="tab-content" id="tab-goals">
+      <div class="section" id="goalsHeader"></div>
+      <div id="goalsBlock" class="section"></div>
+      <div id="goalsStatus" class="control-status"></div>
+    </section>
+    <section class="tab-content" id="tab-knowledge">
+      <div id="knowledgeHeader" class="section"></div>
+      <div id="knowledgeFilters" class="section"></div>
+      <div id="knowledgeBlock"></div>
+      <div id="knowledgeStatus" class="control-status"></div>
+    </section>
+    <section class="tab-content" id="tab-prereg">
+      <div id="preregHeader" class="section"></div>
+      <div id="preregBlock"></div>
+      <div id="preregStatus" class="control-status"></div>
+    </section>
+    <!-- ── Reviewer Circle ─────────────────────────────────────────────── -->
+    <section class="tab-content" id="tab-reviewer-circle">
+      <div id="reviewerCircleHeader" class="section"></div>
+      <div id="reviewerCircleInvitations" class="section"></div>
+      <div id="reviewerCircleCorrelations" class="section"></div>
+      <div id="reviewerCircleStatus" class="control-status"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Private — localhost:8001 only</span>
+    <span class="foot-sep">·</span>
+    <span>Data refreshed every 30s</span>
+  </footer>
+
+  <script src="/public/dashboard.js" defer></script>
+</body>
+</html>

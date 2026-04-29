@@ -1,0 +1,748 @@
+/* Tealc — Blackmon Lab skin
+   Mirrors coleoguy.github.io v3.css design tokens exactly.
+   Source Serif 4 for body, JetBrains Mono for code/labels.
+   Paper aesthetic: warm off-white surfaces, rule dividers, maroon accent (light)
+   or rose-red accent (dark). No neon, no material-design defaults. */
+
+/* ── Google Fonts ──────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,300..900;1,8..60,300..900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ── Design tokens — light (default) ──────────────────────────────────────── */
+/* Values extracted verbatim from coleoguy.github.io/assets/css/v3.css lines 4-19 */
+:root {
+  --paper:        #faf6ec;
+  --paper-raised: #ffffff;
+  --paper-sunk:   #f3ece0;
+  --ink:          #1e1713;
+  --ink-dim:      #5a4c46;
+  --ink-faint:    #8b7a72;
+  --rule:         #d8ccba;
+  --rule-strong:  #baa68a;
+  --accent:       #500000;
+  --accent-hover: #7a1010;
+  --accent-dim:   rgba(80, 0, 0, 0.07);
+  --highlight:    #e6d5a8;
+  --font-text:    'Source Serif 4', 'Iowan Old Style', Georgia, serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+}
+
+/* ── Design tokens — dark ──────────────────────────────────────────────────── */
+/* Values from v3.css lines 21-36 */
+.dark,
+[data-theme="dark"],
+:root.dark,
+html[class*="dark"] {
+  --paper:        #0e0b0a;
+  --paper-raised: #171311;
+  --paper-sunk:   #120e0d;
+  --ink:          #eae2d3;
+  --ink-dim:      #a89c8d;
+  --ink-faint:    #7a6d60;
+  --rule:         #2c2420;
+  --rule-strong:  #463a32;
+  --accent:       #d14a5a;
+  --accent-hover: #e56070;
+  --accent-dim:   rgba(209, 74, 90, 0.12);
+  --highlight:    #3a2f1e;
+}
+
+/* Chainlit v2 uses MUI with a class-based dark mode.
+   Target both the MUI theme class and any chainlit-specific selector. */
+.MuiTheme-dark,
+[data-theme="dark"] {
+  --paper:        #0e0b0a;
+  --paper-raised: #171311;
+  --paper-sunk:   #120e0d;
+  --ink:          #eae2d3;
+  --ink-dim:      #a89c8d;
+  --ink-faint:    #7a6d60;
+  --rule:         #2c2420;
+  --rule-strong:  #463a32;
+  --accent:       #d14a5a;
+  --accent-hover: #e56070;
+  --accent-dim:   rgba(209, 74, 90, 0.12);
+  --highlight:    #3a2f1e;
+}
+
+/* ── Global shell ──────────────────────────────────────────────────────────── */
+body,
+#root,
+.MuiBox-root {
+  font-family: var(--font-text) !important;
+  background-color: var(--paper) !important;
+  color: var(--ink) !important;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "liga", "kern", "onum";
+}
+
+/* ── App chrome / header ───────────────────────────────────────────────────── */
+header,
+.MuiAppBar-root,
+[class*="header"] {
+  background-color: var(--paper-raised) !important;
+  border-bottom: 1px solid var(--rule) !important;
+  box-shadow: none !important;
+  color: var(--ink) !important;
+}
+
+/* App name in header */
+header h1,
+header [class*="name"],
+.MuiAppBar-root h1,
+.MuiAppBar-root [class*="title"] {
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--ink-faint) !important;
+  font-weight: 500 !important;
+}
+
+/* ── Sidebar / thread history panel ───────────────────────────────────────── */
+aside,
+[class*="sidebar"],
+[class*="ThreadHistory"],
+.MuiDrawer-paper {
+  background-color: var(--paper-sunk) !important;
+  border-right: 1px solid var(--rule) !important;
+  box-shadow: none !important;
+}
+
+/* Sidebar items — scoped to li/div/a elements only, never buttons.
+   The whole page wraps in a div with class containing "sidebar", so
+   [class*="sidebar"] [class*="item"] would accidentally match any button
+   that has "items-center" in its class list. Use :not(button) to guard. */
+[class*="ThreadHistory"] [class*="item"]:not(button),
+aside [class*="item"]:not(button) {
+  border-bottom: 1px solid var(--rule) !important;
+  border-radius: 0 !important;
+  color: var(--ink-dim) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+}
+
+[class*="ThreadHistory"] [class*="item"]:not(button):hover,
+aside [class*="item"]:not(button):hover {
+  background-color: var(--accent-dim) !important;
+  color: var(--ink) !important;
+}
+
+/* ── Main chat container ───────────────────────────────────────────────────── */
+main,
+[class*="chat-container"],
+[class*="messages-container"],
+.MuiContainer-root {
+  background-color: var(--paper) !important;
+}
+
+/* ── Message bubbles ───────────────────────────────────────────────────────── */
+/* Chainlit renders messages as .cl-message; MUI wraps in MuiPaper-root */
+.cl-message,
+[class*="message-container"],
+[class*="MessageContainer"] {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Assistant messages: paper-raised card with rule border */
+[class*="assistant"] .cl-message-content,
+[class*="assistant"] [class*="message-content"],
+[data-author="assistant"] [class*="message-content"],
+.cl-message[data-type="assistant"],
+[class*="AssistantMessage"] {
+  background-color: var(--paper-raised) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 4px !important;
+  padding: 14px 18px !important;
+  box-shadow: 0 1px 3px rgba(30, 23, 19, 0.06) !important;
+  color: var(--ink) !important;
+  font-family: var(--font-text) !important;
+  line-height: 1.65 !important;
+}
+
+/* User messages: sunk inset, right-aligned indent */
+[class*="user"] .cl-message-content,
+[class*="user"] [class*="message-content"],
+[data-author="user"] [class*="message-content"],
+.cl-message[data-type="user"],
+[class*="UserMessage"] {
+  background-color: var(--paper-sunk) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 4px !important;
+  padding: 12px 16px !important;
+  box-shadow: none !important;
+  color: var(--ink-dim) !important;
+  font-family: var(--font-text) !important;
+  line-height: 1.6 !important;
+  margin-left: auto !important;
+  max-width: 80% !important;
+}
+
+/* MuiPaper inside messages — strip MUI card look */
+.cl-message .MuiPaper-root,
+[class*="message"] .MuiPaper-root {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+/* ── Step / tool collapsibles ──────────────────────────────────────────────── */
+.cl-step,
+[class*="Step"],
+[class*="step-container"] {
+  background-color: var(--paper-sunk) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 3px !important;
+  margin: 6px 0 !important;
+  box-shadow: none !important;
+}
+
+.cl-step summary,
+[class*="Step"] summary,
+[class*="step-header"],
+[class*="StepHeader"] {
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.06em !important;
+  color: var(--ink-faint) !important;
+  padding: 6px 10px !important;
+  border-bottom: 1px solid var(--rule) !important;
+  cursor: pointer !important;
+  user-select: none !important;
+}
+
+.cl-step summary:hover,
+[class*="step-header"]:hover {
+  color: var(--ink-dim) !important;
+}
+
+/* Step content / output */
+.cl-step > div,
+[class*="Step"] > div,
+[class*="step-content"],
+[class*="StepContent"] {
+  background-color: var(--paper-sunk) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  color: var(--ink-dim) !important;
+  padding: 8px 10px !important;
+  border-top: 1px solid var(--rule) !important;
+}
+
+/* ── Code blocks ───────────────────────────────────────────────────────────── */
+pre,
+code,
+.cl-code,
+[class*="code-block"],
+[class*="CodeBlock"],
+.MuiTypography-root code {
+  font-family: var(--font-mono) !important;
+  font-size: 0.875em !important;
+}
+
+pre,
+[class*="code-block"],
+[class*="CodeBlock"] {
+  background-color: var(--paper-sunk) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 3px !important;
+  padding: 12px 14px !important;
+  overflow-x: auto !important;
+  color: var(--ink-dim) !important;
+  box-shadow: none !important;
+}
+
+/* Inline code */
+code:not(pre code),
+.MuiTypography-root > code {
+  background-color: var(--paper-sunk) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 2px !important;
+  padding: 1px 5px !important;
+  color: var(--accent) !important;
+}
+
+/* ── Chat input box ────────────────────────────────────────────────────────── */
+[class*="input-container"],
+[class*="InputContainer"],
+[class*="composer"],
+[class*="Composer"],
+.cl-input-container,
+[class*="message-input"] {
+  background-color: var(--paper-raised) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+
+[class*="input-container"]:focus-within,
+[class*="InputContainer"]:focus-within,
+[class*="composer"]:focus-within {
+  border-color: var(--rule-strong) !important;
+  box-shadow: 0 0 0 2px var(--accent-dim) !important;
+}
+
+/* The actual textarea / input element */
+[class*="input-container"] textarea,
+[class*="InputContainer"] textarea,
+[class*="composer"] textarea,
+[class*="composer"] input[type="text"],
+.cl-input,
+#chat-input {
+  font-family: var(--font-text) !important;
+  font-size: 16px !important;
+  color: var(--ink) !important;
+  background-color: transparent !important;
+  caret-color: var(--accent) !important;
+}
+
+[class*="input-container"] textarea::placeholder,
+[class*="composer"] textarea::placeholder {
+  color: var(--ink-faint) !important;
+  font-style: italic !important;
+}
+
+/* MUI TextField wrapper */
+.MuiTextField-root,
+.MuiInputBase-root {
+  background-color: var(--paper-raised) !important;
+  border-radius: 4px !important;
+}
+
+.MuiOutlinedInput-notchedOutline {
+  border-color: var(--rule) !important;
+}
+
+.MuiInputBase-root:hover .MuiOutlinedInput-notchedOutline,
+.MuiInputBase-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+  border-color: var(--rule-strong) !important;
+}
+
+.MuiInputBase-input {
+  font-family: var(--font-text) !important;
+  color: var(--ink) !important;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+.MuiButton-root,
+.MuiIconButton-root,
+[class*="btn"],
+[class*="Button"]:not([class*="IconButton"]) {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  letter-spacing: 0.05em !important;
+  text-transform: none !important;
+  border-radius: 3px !important;
+  box-shadow: none !important;
+}
+
+.MuiButton-contained,
+[class*="btn-primary"] {
+  background-color: var(--accent) !important;
+  color: var(--paper-raised) !important;
+  border: 1px solid var(--accent) !important;
+}
+
+.MuiButton-contained:hover,
+[class*="btn-primary"]:hover {
+  background-color: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+  box-shadow: none !important;
+}
+
+.MuiButton-outlined,
+[class*="btn-secondary"] {
+  border-color: var(--rule) !important;
+  color: var(--ink-dim) !important;
+  background-color: transparent !important;
+}
+
+.MuiButton-outlined:hover {
+  border-color: var(--rule-strong) !important;
+  background-color: var(--accent-dim) !important;
+  color: var(--ink) !important;
+}
+
+/* Send / submit icon button — legacy selectors kept narrow */
+[class*="send-button"],
+[class*="SendButton"] {
+  color: var(--accent) !important;
+}
+
+/* ── Action chips / cl.Action buttons ─────────────────────────────────────── */
+.cl-action,
+[class*="ActionButton"],
+[class*="action-chip"],
+[class*="Chip"] {
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.04em !important;
+  background-color: var(--paper-sunk) !important;
+  border: 1px solid var(--rule) !important;
+  color: var(--ink-dim) !important;
+  border-radius: 3px !important;
+  box-shadow: none !important;
+}
+
+.cl-action:hover,
+[class*="ActionButton"]:hover,
+[class*="action-chip"]:hover {
+  background-color: var(--accent-dim) !important;
+  border-color: var(--rule-strong) !important;
+  color: var(--accent) !important;
+}
+
+/* MUI Chip */
+.MuiChip-root {
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  background-color: var(--paper-sunk) !important;
+  border: 1px solid var(--rule) !important;
+  color: var(--ink-dim) !important;
+  border-radius: 3px !important;
+}
+
+/* ── Welcome / chainlit.md surface ────────────────────────────────────────── */
+[class*="welcome"],
+[class*="Welcome"],
+[class*="empty-state"],
+[class*="EmptyState"],
+.cl-welcome {
+  background-color: var(--paper-raised) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 4px !important;
+  padding: 28px 32px !important;
+  max-width: 640px !important;
+  margin: auto !important;
+  box-shadow: 0 1px 4px rgba(30, 23, 19, 0.05) !important;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--rule-strong);
+}
+
+/* ── Typography inside messages ──────────────────────────────────────────────*/
+.cl-message-content h1,
+.cl-message-content h2,
+.cl-message-content h3,
+[class*="message-content"] h1,
+[class*="message-content"] h2,
+[class*="message-content"] h3 {
+  font-family: var(--font-text) !important;
+  color: var(--ink) !important;
+  border-bottom: 1px solid var(--rule) !important;
+  padding-bottom: 4px !important;
+  margin-bottom: 10px !important;
+  font-weight: 600 !important;
+}
+
+.cl-message-content p,
+[class*="message-content"] p {
+  margin-bottom: 10px !important;
+  line-height: 1.65 !important;
+}
+
+.cl-message-content a,
+[class*="message-content"] a {
+  color: var(--accent) !important;
+  text-decoration: underline !important;
+  text-decoration-thickness: 1px !important;
+  text-underline-offset: 2px !important;
+}
+
+.cl-message-content a:hover,
+[class*="message-content"] a:hover {
+  color: var(--accent-hover) !important;
+}
+
+.cl-message-content strong,
+[class*="message-content"] strong {
+  color: var(--ink) !important;
+  font-weight: 700 !important;
+}
+
+.cl-message-content hr,
+[class*="message-content"] hr {
+  border: none !important;
+  border-top: 1px solid var(--rule) !important;
+  margin: 16px 0 !important;
+}
+
+/* ── MuiPaper surfaces ──────────────────────────────────────────────────────── */
+.MuiPaper-root {
+  background-color: var(--paper-raised) !important;
+  border: 1px solid var(--rule) !important;
+  box-shadow: 0 1px 3px rgba(30, 23, 19, 0.07) !important;
+  color: var(--ink) !important;
+}
+
+.MuiPaper-elevation0 {
+  box-shadow: none !important;
+  border-color: var(--rule) !important;
+}
+
+/* ── Dividers ───────────────────────────────────────────────────────────────── */
+.MuiDivider-root,
+hr {
+  border-color: var(--rule) !important;
+}
+
+/* ── Typography baseline ────────────────────────────────────────────────────── */
+.MuiTypography-root {
+  font-family: var(--font-text) !important;
+  color: var(--ink) !important;
+}
+
+.MuiTypography-caption,
+.MuiTypography-overline {
+  font-family: var(--font-mono) !important;
+  color: var(--ink-faint) !important;
+  letter-spacing: 0.05em !important;
+}
+
+/* ── Tooltip ────────────────────────────────────────────────────────────────── */
+.MuiTooltip-tooltip {
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  background-color: var(--ink) !important;
+  color: var(--paper) !important;
+  border-radius: 2px !important;
+}
+
+/* ── Loading / streaming indicator ─────────────────────────────────────────── */
+[class*="loading"],
+[class*="Loading"],
+[class*="cursor"],
+[class*="typing"] {
+  color: var(--accent) !important;
+}
+
+/* ── Focus rings ────────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   STYLE FIXES — applied after first visual review
+   Heath reported: text too small, weird shadows + transparency around send button,
+   color clashes near the composer.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* FIX 1 — bump base font size. Source Serif 4 reads small at MUI defaults. */
+html, body, #root {
+  font-size: 17px !important;
+}
+body, .MuiBox-root, .MuiTypography-body1, .MuiTypography-body2 {
+  font-size: 16px !important;
+  line-height: 1.6 !important;
+}
+.cl-message-content,
+[class*="message-content"],
+.cl-message-content p,
+[class*="message-content"] p,
+.cl-message-content li,
+[class*="message-content"] li {
+  font-size: 16px !important;
+  line-height: 1.65 !important;
+}
+
+/* User/assistant message bubbles — slightly larger so the chat is comfortable */
+[data-author="assistant"] [class*="message-content"],
+[data-author="user"]      [class*="message-content"],
+.cl-message-content {
+  font-size: 16px !important;
+}
+
+/* Headings inside markdown */
+.cl-message-content h1, [class*="message-content"] h1 { font-size: 22px !important; }
+.cl-message-content h2, [class*="message-content"] h2 { font-size: 19px !important; }
+.cl-message-content h3, [class*="message-content"] h3 { font-size: 17px !important; }
+
+/* FIX 2 — kill MUI ripple (kept for safety, Chainlit 2.x uses Tailwind not MUI) */
+.MuiTouchRipple-root,
+.MuiTouchRipple-rippleVisible,
+.MuiTouchRipple-child {
+  display: none !important;
+  background: transparent !important;
+}
+
+.MuiIconButton-root {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  transition: background-color 0.15s, color 0.15s !important;
+}
+.MuiIconButton-root:hover,
+.MuiIconButton-root:focus,
+.MuiIconButton-root.Mui-focusVisible {
+  background-color: var(--accent-dim) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* ── FIX 3 — Chainlit 2.x Tailwind composer + send button ─────────────────
+   Confirmed DOM structure via live inspection 2026-04-19:
+     #message-composer   (.bg-accent .rounded-3xl)  ← the composer card
+       └─ button.bg-primary.rounded-full.h-8.w-8    ← THE send button
+          (no aria-label; type=submit; disabled when input empty)
+   Chainlit's Tailwind sheet sets:
+     --primary:            340 92% 52%  (hot pink)  ← we override to maroon
+     --primary-foreground: 0 0% 100%   (white)
+     --accent:             0 0% 95%    (light gray) ← composer bg, keep it
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Override Chainlit's --primary (hot pink HSL 340 92% 52%) to our maroon.
+   Chainlit's index-*.css sets --primary on :root (no !important) and loads AFTER
+   our sheet, so it wins the last-write-wins race. We use !important to beat it.
+   Custom properties DO respect !important in CSS. */
+:root {
+  --primary:            0 100% 16% !important;  /* #500000 as HSL for Tailwind's hsl(var(--primary)) */
+  --primary-foreground: 0 0% 100% !important;   /* white text on primary buttons */
+  --ring:               0 100% 16% !important;  /* maroon focus ring */
+}
+
+/* The composer card — Chainlit uses bg-accent (light gray) which is fine.
+   Preserve its rounded-3xl look; just ensure our paper tokens don't clobber it. */
+#message-composer {
+  border: 1px solid var(--rule) !important;
+  box-shadow: none !important;
+  /* background comes from Tailwind's bg-accent; let it be */
+}
+
+/* The send button — targeted by its unique combination:
+   - lives inside #message-composer
+   - has bg-primary class (Chainlit's primary action)
+   - is a submit button */
+#message-composer button[type="submit"].bg-primary,
+#message-composer button.bg-primary {
+  background-color: #500000 !important;   /* maroon — direct hex beats hsl() */
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 4px !important;          /* square-ish per spec, not pill */
+  box-shadow: none !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  width: 36px !important;
+  height: 36px !important;
+  padding: 0 !important;
+  opacity: 1 !important;                  /* override disabled:opacity-50 visually */
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: background-color 0.15s !important;
+}
+
+#message-composer button[type="submit"].bg-primary:hover,
+#message-composer button.bg-primary:hover {
+  background-color: #7a1010 !important;
+}
+
+/* SVG icon inside the send button — force white fill */
+#message-composer button.bg-primary svg,
+#message-composer button.bg-primary path {
+  fill: #ffffff !important;
+  color: #ffffff !important;
+  stroke: none !important;
+}
+
+/* When send is disabled (empty input), dim it clearly but don't make it invisible */
+#message-composer button.bg-primary:disabled {
+  background-color: var(--paper-sunk) !important;
+  border: 1px solid var(--rule) !important;
+  opacity: 1 !important;               /* fight Tailwind disabled:opacity-50 */
+}
+#message-composer button.bg-primary:disabled svg,
+#message-composer button.bg-primary:disabled path {
+  fill: var(--ink-faint) !important;
+  color: var(--ink-faint) !important;
+}
+
+/* Other buttons in the composer row (file upload, mic, etc.) — leave them neutral */
+#message-composer button:not(.bg-primary) {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  color: var(--ink-dim) !important;
+}
+#message-composer button:not(.bg-primary):hover {
+  background-color: var(--accent-dim) !important;
+  color: var(--ink) !important;
+}
+
+/* Textarea inside composer */
+#chat-input {
+  font-family: var(--font-text) !important;
+  font-size: 16px !important;
+  line-height: 1.5 !important;
+  color: var(--ink) !important;
+  background-color: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  caret-color: #500000 !important;
+}
+#chat-input::placeholder {
+  color: var(--ink-faint) !important;
+  font-style: italic !important;
+}
+
+/* FIX 4 — remove MUI elevation halos (safety, kept for any MUI remnants) */
+.MuiPaper-elevation1, .MuiPaper-elevation2, .MuiPaper-elevation3,
+.MuiPaper-elevation4, .MuiPaper-elevation5 {
+  box-shadow: none !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LAB BRAND — CSS-only pseudo-elements on <body>.
+   Chainlit v2.11 strips custom_js, so we don't rely on JS injection.
+   Pseudo-elements aren't in the DOM — React cannot remove them.
+   Positioned in the empty left-side area below the Chainlit header.
+   ──────────────────────────────────────────────────────────────────────────── */
+body::before {
+  content: '' !important;
+  position: fixed !important;
+  top: 80px !important;
+  left: 24px !important;
+  width: 200px !important;
+  height: 200px !important;
+  background-image: url('/public/blackmon_logo.png') !important;
+  background-size: contain !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  z-index: 9999 !important;
+  pointer-events: none !important;
+  display: block !important;
+}
+body::after {
+  content: 'BLACKMON LAB · TAMU' !important;
+  position: fixed !important;
+  top: 288px !important;
+  left: 24px !important;
+  width: 200px !important;
+  text-align: center !important;
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.14em !important;
+  color: var(--ink-faint) !important;
+  z-index: 9999 !important;
+  pointer-events: none !important;
+  display: block !important;
+}
+/* Hide on narrow viewports so the brand doesn't overlap the chat */
+@media (max-width: 1100px) {
+  body::before, body::after { display: none !important; }
+}
