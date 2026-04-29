@@ -203,4 +203,4 @@ If you are using Tealc as a reference for building your own lab agent, the most 
 
 ## License
 
-Not yet declared. Treat as "all rights reserved" until a license file lands.
+MIT — see [LICENSE](LICENSE).
