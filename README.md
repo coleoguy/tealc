@@ -1,6 +1,6 @@
 # Tealc
 
-A personal AI postdoc for the [Blackmon Lab](https://coleoguy.github.io) at Texas A&M.
+A personal AI partner for the [Blackmon Lab](https://coleoguy.github.io) at Texas A&M.
 
 Tealc is the lab's resident agent — a chat interface backed by a background scheduler that handles literature, grants, students, calendar, email, code execution, and a growing pile of research bookkeeping. It is built around Anthropic's Claude models (Sonnet 4.6 by default, Opus 4.7 on demand) using LangGraph for orchestration and Chainlit for the chat UI.
 
