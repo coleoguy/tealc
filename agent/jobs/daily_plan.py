@@ -35,8 +35,8 @@ DEADLINES_PATH = os.path.join(_DATA, "deadlines.json")
 # Sonnet system prompt
 # ---------------------------------------------------------------------------
 _SYSTEM_PROMPT = """\
-You generate Heath Blackmon's daily plan: 3-5 concrete, prioritized actions for TODAY \
-that advance his active goals. Output JSON: \
+You generate the researcher's daily plan: 3-5 concrete, prioritized actions for TODAY \
+that advance their active goals. Output JSON: \
 {"items": [{"rank": 1, "description": "...", "linked_goal_id": "g_XXX", "estimated_minutes": N}, ...]}. \
 Each description: a single concrete action Heath could complete in one sitting \
 (NOT vague like "work on grant"; specific like "draft Significance section of \

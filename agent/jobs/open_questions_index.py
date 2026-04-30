@@ -50,7 +50,7 @@ from agent.cost_tracking import record_call  # noqa: E402
 
 _WEBSITE_REPO = os.environ.get(
     "TEALC_WEBSITE_REPO",
-    "/Users/blackmon/Desktop/GitHub/coleoguy.github.io",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages"),
 )
 _OUTPUT_DIR = Path(_WEBSITE_REPO) / "knowledge" / "questions"
 _OUTPUT_FILE = _OUTPUT_DIR / "index.md"

@@ -18,14 +18,21 @@ from agent.scheduler import DB_PATH
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+import os
+
 _HOME = Path.home()
 
 # Ordered list of root directories to search when proposing a data_dir.
+# Override the GitHub-pages location by setting RESEARCHER_GITHUB_PAGES_DIR
+# (default points at this lab's pages site for backward compat).
+_GITHUB_PAGES_DIR = os.environ.get(
+    "RESEARCHER_GITHUB_PAGES_DIR",
+    str(_HOME / "Desktop" / "GitHub" / "lab-pages"),
+)
 _SEARCH_ROOTS = [
     _HOME / "Google Drive" / "My Drive" / "00-Lab-Agent" / "data",
     _HOME / "Google Drive" / "My Drive",
-    _HOME / "Desktop" / "GitHub" / "coleoguy.github.io",
-    _HOME / "Desktop" / "GitHub" / "coleoguy",
+    Path(_GITHUB_PAGES_DIR),
     _HOME / "Research",
 ]
 

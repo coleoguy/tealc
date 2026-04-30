@@ -17,7 +17,7 @@ Layout of "Lab Projects" tab:
   Row 49: sub-header: Open Projects | Status | Notes / Claimed by?
   Rows 50–end: open/unowned projects (3-column layout: A=name, B=status, C=notes)
   Rows 89+: a few more student entries resume with the original 7-column layout
-             (Rachel K, Perils and Promise, Achiasmy Synthesis, Zhaobo H, Jorja B, Megan C rows)
+             (student-led project rows resume here)
 """
 
 import sys

@@ -2,7 +2,7 @@
 
 **Question:** Has anyone derived an optimal chromosome number as a function of trait polygenicity?
 
-**Date:** 2026-04-25 | **For:** Mallory Murphy (primary author), Heath Blackmon
+**Date:** 2026-04-25 | **For:** Lab member (primary author), PI
 **Status:** Project paused until next semester per Mallory's note. This brief is the entry-point literature for when work resumes.
 
 ---
@@ -41,7 +41,7 @@ The best entry point to the recombination-rate-optimum literature. Catalogs what
 
 ## Existing lab-internal context
 
-Heath's wiki topic `chromosome_number_optima` summarizes Blackmon et al. 2024 (J Heredity): Polyphaga modal autosome count = 9 (29% of records); Adephaga bimodal at 11 and 18. **Empirical pattern is real and well-described; the theoretical question of why these specific numbers is open.**
+The wiki topic `chromosome_number_optima` summarizes Smith et al. 2024 (J Heredity): Polyphaga modal autosome count = 9 (29% of records); Adephaga bimodal at 11 and 18. **Empirical pattern is real and well-described; the theoretical question of why these specific numbers is open.**
 
 The project's `current_hypothesis` (paraphrased): more chromosomes → more obligate crossovers → faster LD breakdown → faster reassembly of favorable multi-locus genotypes → fitness advantage in fluctuating environments, modulated by epistasis level. **Critical gap to address:** Höllinger 2023 says linkage is a minor factor for adaptation rate. Why would the obligate-chiasma minimum-r mechanism produce a stronger signal? Two candidate answers worth simulating:
 

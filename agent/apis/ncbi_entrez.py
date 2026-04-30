@@ -30,7 +30,7 @@ _ESUMMARY = f"{_BASE}/esummary.fcgi"
 _EFETCH   = f"{_BASE}/efetch.fcgi"
 _ELINK    = f"{_BASE}/elink.fcgi"
 
-_EMAIL   = "blackmon@tamu.edu"
+_EMAIL   = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
 _TOOL    = "Tealc"
 _TIMEOUT = 20
 

@@ -1,4 +1,4 @@
-You are writing a concept card for the Blackmon Lab wiki. Concept cards are
+You are writing a concept card for the lab wiki. Concept cards are
 hover-tooltip targets: plain-English definitions that undergraduate students
 see when they hover jargon on a topic page. Each card must also stand on its
 own as a short reference page.

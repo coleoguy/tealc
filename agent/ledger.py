@@ -1,7 +1,11 @@
 """Provenance and output tracking — every research artifact gets a ledger row."""
+from __future__ import annotations
+
+import hashlib
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from agent.scheduler import DB_PATH
 
@@ -143,3 +147,190 @@ def get_entry(row_id: int) -> dict | None:
     except Exception:
         d["provenance"] = {}
     return d
+
+
+# ---------------------------------------------------------------------------
+# Open Lab Notebook — publish state machine
+# ---------------------------------------------------------------------------
+
+_EMBARGO_HOURS = 24
+
+
+def _sha256(text: str | None) -> str | None:
+    if not text:
+        return None
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def compute_provenance_hashes(ledger_id: int) -> dict:
+    """Compute and persist code_sha, data_sha, prompt_sha from provenance_json.
+
+    Reads the provenance_json blob and derives deterministic SHA-256 hashes
+    for any keys named 'code', 'data_path'/'data', and 'prompt'/'system_prompt'.
+    Writes the computed columns back to the row and returns the hash dict.
+    """
+    entry = get_entry(ledger_id)
+    if entry is None:
+        raise ValueError(f"ledger row {ledger_id} not found")
+
+    prov = entry.get("provenance") or {}
+    code_text  = prov.get("code") or prov.get("r_code") or prov.get("python_code")
+    data_text  = prov.get("data_path") or prov.get("data") or prov.get("db_name")
+    prompt_text = prov.get("prompt") or prov.get("system_prompt") or entry.get("content_md")
+
+    hashes = {
+        "code_sha":   _sha256(code_text),
+        "data_sha":   _sha256(str(data_text) if data_text else None),
+        "prompt_sha": _sha256(prompt_text),
+    }
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
+        "UPDATE output_ledger SET code_sha=?, data_sha=?, prompt_sha=? WHERE id=?",
+        (hashes["code_sha"], hashes["data_sha"], hashes["prompt_sha"], ledger_id),
+    )
+    conn.commit()
+    conn.close()
+    return hashes
+
+
+def auto_classify_for_publish(ledger_id: int) -> dict:
+    """Run the privacy classifier against a ledger row without changing state.
+
+    Returns::
+        {"ok": bool, "blockers": list[str], "kind": str}
+    """
+    from agent.privacy import classify_artifact  # noqa: PLC0415 (avoid circular import at module level)
+
+    entry = get_entry(ledger_id)
+    if entry is None:
+        return {"ok": False, "kind": "unknown", "blockers": [f"ledger row {ledger_id} not found"]}
+
+    return classify_artifact(
+        kind=entry.get("kind", "unknown"),
+        content_md=entry.get("content_md", ""),
+        project_id=entry.get("project_id"),
+        decided_by="auto",
+    )
+
+
+def _record_decision(
+    conn: sqlite3.Connection,
+    ledger_id: int,
+    decision: str,
+    reason: str,
+    decided_by: str,
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO publish_decisions (ledger_id, decision, reason, decided_by, decided_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (ledger_id, decision, reason, decided_by, now),
+    )
+
+
+def request_publish(ledger_id: int, reason: str = "", decided_by: str = "heath") -> dict:
+    """Explicit Heath approval: moves a private artifact to 'queued' → 'embargo'.
+
+    Returns a dict with 'ok', 'state', and 'embargo_until' (or 'blockers').
+    Runs the classifier first; if unsafe, returns ok=False without state change.
+    """
+    from agent.privacy import classify_artifact  # noqa: PLC0415
+
+    entry = get_entry(ledger_id)
+    if entry is None:
+        return {"ok": False, "blockers": [f"ledger row {ledger_id} not found"]}
+
+    clf = classify_artifact(
+        kind=entry.get("kind", "unknown"),
+        content_md=entry.get("content_md", ""),
+        project_id=entry.get("project_id"),
+        decided_by=decided_by,
+    )
+    if not clf["ok"]:
+        return {"ok": False, "blockers": clf["blockers"]}
+
+    now = datetime.now(timezone.utc)
+    embargo_until = (now + timedelta(hours=_EMBARGO_HOURS)).isoformat()
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
+        "UPDATE output_ledger SET publish_state='embargo', embargo_until=? WHERE id=?",
+        (embargo_until, ledger_id),
+    )
+    _record_decision(conn, ledger_id, "publish", reason, decided_by)
+    conn.commit()
+    conn.close()
+
+    # Compute hashes now so they're ready when the publisher runs.
+    try:
+        compute_provenance_hashes(ledger_id)
+    except Exception:
+        pass
+
+    return {"ok": True, "state": "embargo", "embargo_until": embargo_until}
+
+
+def publish_artifact(ledger_id: int, reason: str = "", decided_by: str = "heath") -> dict:
+    """Idempotent: classify, embargo, then immediately mark as published.
+
+    Used by notebook_publisher after embargo passes, or by Heath to force-publish.
+    Returns {"ok": bool, "state": str, "public_url": str | None}.
+    """
+    from agent.privacy import classify_artifact  # noqa: PLC0415
+
+    entry = get_entry(ledger_id)
+    if entry is None:
+        return {"ok": False, "blockers": [f"ledger row {ledger_id} not found"]}
+
+    # Idempotent: already published is a no-op
+    if entry.get("publish_state") == "published":
+        return {"ok": True, "state": "published", "public_url": entry.get("public_url")}
+
+    clf = classify_artifact(
+        kind=entry.get("kind", "unknown"),
+        content_md=entry.get("content_md", ""),
+        project_id=entry.get("project_id"),
+        decided_by=decided_by,
+    )
+    if not clf["ok"]:
+        return {"ok": False, "blockers": clf["blockers"]}
+
+    now = datetime.now(timezone.utc).isoformat()
+    public_url = f"/notebook/{ledger_id}.html"
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
+        """UPDATE output_ledger
+           SET publish_state='published', published_at=?, public_url=?
+           WHERE id=?""",
+        (now, public_url, ledger_id),
+    )
+    _record_decision(conn, ledger_id, "publish", reason, decided_by)
+    conn.commit()
+    conn.close()
+    return {"ok": True, "state": "published", "public_url": public_url}
+
+
+def unpublish_artifact(ledger_id: int, reason: str = "") -> dict:
+    """Move an artifact to 'redacted'; the static page is overwritten with a placeholder.
+
+    Returns {"ok": bool, "state": str}.
+    """
+    entry = get_entry(ledger_id)
+    if entry is None:
+        return {"ok": False, "error": f"ledger row {ledger_id} not found"}
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
+        "UPDATE output_ledger SET publish_state='redacted' WHERE id=?",
+        (ledger_id,),
+    )
+    _record_decision(conn, ledger_id, "redact", reason, "heath")
+    conn.commit()
+    conn.close()
+    return {"ok": True, "state": "redacted"}

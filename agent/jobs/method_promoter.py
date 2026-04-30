@@ -52,7 +52,10 @@ _JOB_NAME = "method_promoter"
 _SONNET_MODEL = "claude-sonnet-4-6"
 _OPUS_MODEL = "claude-opus-4-7"
 
-_WIKI_ROOT = os.path.expanduser("~/Desktop/GitHub/coleoguy.github.io")
+_WIKI_ROOT = os.environ.get(
+    "TEALC_WEBSITE_REPO",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages"),
+)
 _KNOWLEDGE_ROOT = os.path.join(_WIKI_ROOT, "knowledge")
 _METHODS_DIR = os.path.join(_KNOWLEDGE_ROOT, "methods")
 _METHODS_INDEX = os.path.join(_METHODS_DIR, "index.md")

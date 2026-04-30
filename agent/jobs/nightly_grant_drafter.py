@@ -11,9 +11,12 @@ Run manually to test:
     python -m agent.jobs.nightly_grant_drafter
 """
 import json
+import logging
 import os
 import sqlite3
 from datetime import datetime, timezone, timedelta
+
+log = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 
@@ -55,7 +58,7 @@ _GAP_FINDER_SYSTEM = (
 )
 
 _DRAFTER_SYSTEM = (
-    "You draft one section of Heath Blackmon's grant or manuscript. "
+    "You draft one section of the researcher's grant or manuscript. "
     "Heath's voice: direct, quantitative, precise, no hedging. "
     "The section will be reviewed by Heath in the morning — do not overcommit or invent results. "
     "If you need a number Heath hasn't given you, say [Heath: confirm specific number]. "
@@ -334,6 +337,15 @@ def job() -> str:
         drafted_text = draft_msg.content[0].text.strip()
     except Exception as e:
         return f"error in drafter call: {e}"
+
+    # 6a-pre. Citation suggester — append "Consider citing" footnote block
+    try:
+        from agent.citation_suggester import suggest_citations  # noqa: PLC0415
+        _cite_result = suggest_citations(drafted_text)
+        if _cite_result.get("suggestions"):
+            drafted_text += "\n\n" + _cite_result["footnote_block_md"]
+    except Exception as exc:
+        log.warning("Citation suggester failed: %s", exc)
 
     # 6a. Record cost for both Anthropic calls
     try:

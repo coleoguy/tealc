@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 
 RATE_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "notification_rate.json")
-HEATH_EMAIL = "blackmon@tamu.edu"
+RESEARCHER_EMAIL = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
 MAX_CRITICAL_PER_HOUR = 5
 
 
@@ -70,8 +70,8 @@ def _send_email(title: str, body: str, link: str | None) -> bool:
         if link:
             full_body += f"\n\nLink: {link}"
         msg = MIMEText(full_body, "plain")
-        msg["To"] = HEATH_EMAIL
-        msg["From"] = HEATH_EMAIL
+        msg["To"] = RESEARCHER_EMAIL
+        msg["From"] = RESEARCHER_EMAIL
         msg["Subject"] = f"[Tealc] {title}"
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
         service.users().messages().send(userId="me", body={"raw": raw}).execute()

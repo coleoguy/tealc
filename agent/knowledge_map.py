@@ -525,16 +525,18 @@ def seed_from_existing_state(overwrite: bool = False) -> dict:
     # ------------------------------------------------------------------
     # g) Standing resources
     # ------------------------------------------------------------------
+    _researcher_github = os.environ.get("RESEARCHER_GITHUB", "https://github.com/your-org")
+    _researcher_site = os.environ.get("RESEARCHER_PUBLIC_SITE", "https://your-org.github.io")
     standing = [
-        ("github_repo", "https://github.com/coleoguy", "Heath Blackmon GitHub",
+        ("github_repo", _researcher_github, "Researcher GitHub",
          "Main GitHub profile", ["github", "profile"]),
-        ("github_repo", "https://github.com/coleoguy/TraitTrawler", "TraitTrawler",
+        ("github_repo", os.environ.get("RESEARCHER_GITHUB", "https://github.com/your-org/your-tool"), "TraitTrawler",
          "Multi-agent literature mining system — predecessor of Tealc", ["github", "ai-project"]),
-        ("external_url", "https://coleoguy.github.io", "Blackmon Lab website",
+        ("external_url", _researcher_site, "Lab website",
          "Public lab website", ["lab", "website"]),
         ("external_url", "https://orcid.org/0000-0002-5433-4036", "ORCID profile",
-         "Heath's ORCID", ["profile", "orcid"]),
-        ("external_url", "https://coleoguy.github.io/tealc.html", "Tealc public aquarium",
+         "Researcher ORCID", ["profile", "orcid"]),
+        ("external_url", _researcher_site + "/tealc.html", "Tealc public aquarium",
          "Public activity feed", ["tealc", "public"]),
     ]
     for kind, handle, display_name, purpose, tags in standing:

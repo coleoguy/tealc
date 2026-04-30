@@ -1,6 +1,6 @@
 """Refresh wiki enrichment sections: cross-links + external DOI + author crosswalk.
 
-Every paper page and topic page in coleoguy.github.io/knowledge/ gets a
+Every paper page and topic page in the lab's GitHub Pages /knowledge/ gets a
 deterministic enrichment section written into the `tealc:related-*` marker
 region. Content between those markers is rewritten each run; content outside
 them (including the tealc:auto region on topic pages) is preserved.
@@ -111,10 +111,10 @@ def _parse_authors(authors_raw: str) -> list[tuple[str, str]]:
             continue
         tokens = piece.split()
         if len(tokens) < 2:
-            # single token — could be "Blackmon" but ambiguous; skip
+            # single token — could be "Smith" but ambiguous; skip
             continue
         # Distinguish two author-order conventions. Look at FIRST token too,
-        # not just last, to avoid misreading "H Blackmon" as surname=H.
+        # not just last, to avoid misreading "H Smith" as surname=H.
         last = tokens[-1]
         first = tokens[0]
         last_raw = last.replace(".", "")
@@ -127,11 +127,11 @@ def _parse_authors(authors_raw: str) -> list[tuple[str, str]]:
         )
 
         if last_is_initials and not first_is_initial_only:
-            # "Jonika MM" / "Blackmon H" — surname first, initials last
+            # "Jonika MM" / "Smith H" — surname first, initials last
             surname = first
             initials = last_raw
         else:
-            # "Michelle Jonika" / "H Blackmon" / "Michelle M Jonika" — surname last
+            # "Michelle Jonika" / "H Smith" / "Michelle M Jonika" — surname last
             surname = last
             # Build initials from first-token + middle tokens (first letters)
             initials_list: list[str] = []

@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tealc HQ — Blackmon Lab</title>
+  <title>Tealc HQ — Lab</title>
   <link rel="stylesheet" href="/public/dashboard.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <span class="brand-name">Blackmon Lab</span>
+      <span class="brand-name">Lab</span>
       <span class="brand-sub">TEALC HQ</span>
     </div>
     <div class="status">
@@ -23,7 +23,6 @@
   <nav class="tabs">
     <button class="tab active" data-tab="unified-inbox">Awaiting Review <span class="badge" id="unifiedInboxBadge"></span></button>
     <button class="tab" data-tab="plate">On your plate <span class="badge" id="plateBadge"></span></button>
-    <button class="tab" data-tab="inbox">Old Inbox <span class="badge" id="inboxBadge"></span></button>
     <button class="tab" data-tab="projects">Projects</button>
     <button class="tab" data-tab="activity">What I've been doing</button>
     <button class="tab" data-tab="control">Control</button>
@@ -48,14 +47,6 @@
       <div id="projectsFilters" class="section"></div>
       <div id="projectsBlock"></div>
       <div id="projectsStatus" class="control-status"></div>
-    </section>
-    <section class="tab-content" id="tab-inbox">
-      <div id="inboxHeader" class="section"></div>
-      <div id="inboxHypotheses" class="section"></div>
-      <div id="inboxBriefings" class="section"></div>
-      <div id="inboxDrafts" class="section"></div>
-      <div id="inboxGrants" class="section"></div>
-      <div id="inboxStatus" class="control-status"></div>
     </section>
     <section class="tab-content" id="tab-plate">
       <div id="stalledGoals" class="section"></div>
@@ -113,6 +104,9 @@
     <span class="foot-sep">·</span>
     <span>Data refreshed every 30s</span>
   </footer>
+
+  <!-- Inbox detail modal — populated dynamically by openInboxModal() in dashboard.js -->
+  <div id="inboxDetailModal" style="display:none"></div>
 
   <script src="/public/dashboard.js" defer></script>
 </body>

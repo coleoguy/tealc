@@ -1,14 +1,22 @@
-"""voice_index.py — TF-IDF retrieval index of Heath Blackmon's published-paper text.
+"""voice_index.py — TF-IDF retrieval index of the researcher's published-paper text.
 
 Provides stylistic exemplars for grant/hypothesis drafting without touching any
 LLM or embedding model.  Pure retrieval: sklearn TF-IDF (falls back to a
 hand-rolled implementation if sklearn is unavailable).
 
-Public API
+Public API (legacy TF-IDF — kept intact for retrieve_voice_exemplars tool)
 ----------
 build_index(refresh=False)  -> dict   # stats; caches to data/voice_index.pkl
 retrieve_exemplars(query, k=3) -> list[dict]
 voice_system_prompt_addendum(query, k=3) -> str
+
+Public API (Tier-2 sentence-embedding foundation — required by 5 feature agents)
+----------
+embed_sentences(sentences: list[str]) -> np.ndarray
+retrieve_similar_sentences(query, k=12, min_cosine=0.55) -> list[dict]
+retrieve_similar_claims(subject, predicate=None, k=5) -> list[dict]
+get_corpus_embeddings() -> tuple[np.ndarray, list[dict]] | None
+is_foundation_ready() -> bool
 """
 from __future__ import annotations
 
@@ -36,12 +44,13 @@ _PUBS_JSON = os.path.join(
     "",
 )
 # Absolute path to the publications JSON on disk (read-only reference)
-_PUBLICATIONS_JSON = (
-    "/Users/blackmon/Desktop/GitHub/coleoguy.github.io/data/publications.json"
+_PUBLICATIONS_JSON = os.environ.get(
+    "PUBLICATIONS_JSON",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages/data/publications.json"),
 )
 
-_OPENALEX_AUTHOR_ID = "A5054182121"  # Heath Blackmon
-_OPENALEX_EMAIL = "blackmon@tamu.edu"
+_OPENALEX_AUTHOR_ID = os.environ.get("OPENALEX_AUTHOR_ID", "A5054182121")
+_OPENALEX_EMAIL = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
 
 # ---------------------------------------------------------------------------
 # TF-IDF: try sklearn; fall back to hand-rolled
@@ -500,6 +509,236 @@ def voice_system_prompt_addendum(query_text: str, k: int = 3) -> str:
     return "\n".join(lines)
 
 
+# ===========================================================================
+# Tier-2 Foundation — sentence-embedding public API
+# ===========================================================================
+
+import sqlite3
+import numpy as np  # already in scope from TF-IDF block; safe re-import if needed
+
+_NPZ_PATH = os.path.join(_PROJECT_ROOT, "data", "voice_index_st.npz")
+_JSONL_PATH = os.path.join(_PROJECT_ROOT, "data", "voice_sentences.jsonl")
+
+_ST_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+_st_model = None  # lazy-loaded
+
+
+def _get_st_model():
+    global _st_model
+    if _st_model is None:
+        from sentence_transformers import SentenceTransformer  # type: ignore
+        _st_model = SentenceTransformer(_ST_MODEL_NAME)
+    return _st_model
+
+
+# ---------------------------------------------------------------------------
+# embed_sentences
+# ---------------------------------------------------------------------------
+
+def embed_sentences(sentences: list[str]) -> "np.ndarray":
+    """Return [N, 384] embedding matrix for the input sentences."""
+    if not sentences:
+        return np.zeros((0, 384), dtype=np.float32)
+    model = _get_st_model()
+    vecs = model.encode(sentences, normalize_embeddings=True, show_progress_bar=False)
+    return vecs.astype(np.float32)
+
+
+# ---------------------------------------------------------------------------
+# get_corpus_embeddings
+# ---------------------------------------------------------------------------
+
+def get_corpus_embeddings() -> "tuple[np.ndarray, list[dict]] | None":
+    """Returns (embeddings [N, 384], metadata list) or None if not populated.
+
+    metadata[i] = {paper_id, year, sentence, section, sentence_id}
+    """
+    if not os.path.exists(_NPZ_PATH) or not os.path.exists(_JSONL_PATH):
+        return None
+    try:
+        data = np.load(_NPZ_PATH)
+        embs = data["embeddings"].astype(np.float32)
+        meta: list[dict] = []
+        with open(_JSONL_PATH, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    meta.append(json.loads(line))
+        if len(embs) != len(meta):
+            return None
+        if len(embs) == 0:
+            return None
+        return embs, meta
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# retrieve_similar_sentences
+# ---------------------------------------------------------------------------
+
+def retrieve_similar_sentences(
+    query: str,
+    k: int = 12,
+    min_cosine: float = 0.55,
+) -> list[dict]:
+    """Top-k sentences from Heath's corpus by cosine similarity.
+
+    Returns [] if foundation data not yet populated or on any error.
+    Each dict: {paper_id, year, sentence, section, similarity, sentence_id}
+    """
+    result = get_corpus_embeddings()
+    if result is None:
+        return []
+    embs, meta = result
+
+    try:
+        qvec = embed_sentences([query])[0]  # shape [384]
+        # embs is already L2-normalised; qvec is too
+        sims = embs @ qvec  # [N]
+        top_k = min(k, len(sims))
+        indices = np.argpartition(sims, -top_k)[-top_k:]
+        indices = indices[np.argsort(sims[indices])[::-1]]
+        out: list[dict] = []
+        for idx in indices:
+            sim = float(sims[idx])
+            if sim < min_cosine:
+                break
+            m = meta[idx]
+            # skip sentinel rows
+            if m.get("sentence") == "__no_text__":
+                continue
+            out.append({
+                "sentence_id": m.get("sentence_id", ""),
+                "paper_id": m.get("paper_id", ""),
+                "year": m.get("year", 0),
+                "sentence": m.get("sentence", ""),
+                "section": m.get("section", ""),
+                "similarity": round(sim, 4),
+            })
+        return out
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
+# retrieve_similar_claims
+# ---------------------------------------------------------------------------
+
+def retrieve_similar_claims(
+    subject: str,
+    predicate: str | None = None,
+    k: int = 5,
+) -> list[dict]:
+    """Top-k claims matching subject (and optional predicate).
+
+    Uses FTS5 for candidate retrieval then re-ranks by embedding similarity.
+    Returns [] if not populated or on any error.
+    Each dict: {paper_id, year, subject, predicate, object, evidence_quote,
+                sentence_id, confidence, similarity}
+    """
+    try:
+        from agent.scheduler import DB_PATH  # noqa: PLC0415
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.row_factory = sqlite3.Row
+
+        # Check table exists
+        tbl = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='heath_claims'"
+        ).fetchone()
+        if not tbl:
+            conn.close()
+            return []
+
+        # FTS5 search
+        fts_query = subject
+        if predicate:
+            fts_query = f"{subject} {predicate}"
+
+        rows = conn.execute(
+            """SELECT hc.paper_id, hc.year, hc.subject, hc.predicate,
+                      hc.object, hc.evidence_quote, hc.sentence_id, hc.confidence
+               FROM heath_claims hc
+               JOIN heath_claims_fts fts ON hc.id = fts.rowid
+               WHERE heath_claims_fts MATCH ?
+                 AND hc.subject != '__skip__'
+               LIMIT 50""",
+            (fts_query,),
+        ).fetchall()
+        conn.close()
+
+        if not rows:
+            return []
+
+        # Re-rank via embedding similarity to subject (+ predicate)
+        query_text = subject if not predicate else f"{subject} {predicate}"
+        qvec = embed_sentences([query_text])[0]
+
+        scored: list[tuple[float, dict]] = []
+        for r in rows:
+            candidate = f"{r['subject']} {r['predicate']} {r['object']}"
+            cvec = embed_sentences([candidate])[0]
+            sim = float(np.dot(qvec, cvec))
+            scored.append((sim, dict(r)))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        out: list[dict] = []
+        for sim, r in scored[:k]:
+            out.append({
+                "paper_id": r["paper_id"],
+                "year": r["year"],
+                "subject": r["subject"],
+                "predicate": r["predicate"],
+                "object": r["object"],
+                "evidence_quote": r["evidence_quote"],
+                "sentence_id": r["sentence_id"],
+                "confidence": r["confidence"],
+                "similarity": round(sim, 4),
+            })
+        return out
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
+# is_foundation_ready
+# ---------------------------------------------------------------------------
+
+def is_foundation_ready() -> bool:
+    """True iff sentence embeddings AND heath_sentences AND heath_claims are populated."""
+    # 1. npz file must exist with at least 1 row
+    if not os.path.exists(_NPZ_PATH):
+        return False
+    try:
+        data = np.load(_NPZ_PATH)
+        if data["embeddings"].shape[0] == 0:
+            return False
+    except Exception:
+        return False
+
+    # 2. heath_sentences table must be non-empty
+    try:
+        from agent.scheduler import DB_PATH  # noqa: PLC0415
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("PRAGMA journal_mode=WAL")
+        hs = conn.execute(
+            "SELECT COUNT(*) FROM heath_sentences WHERE sentence != '__no_text__'"
+        ).fetchone()
+        if not hs or hs[0] == 0:
+            conn.close()
+            return False
+
+        # 3. heath_claims table must be non-empty (real claims only)
+        hc = conn.execute(
+            "SELECT COUNT(*) FROM heath_claims WHERE subject != '__skip__'"
+        ).fetchone()
+        conn.close()
+        return bool(hc and hc[0] > 0)
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Manual run
 # ---------------------------------------------------------------------------
@@ -509,3 +748,6 @@ if __name__ == "__main__":
     exs = retrieve_exemplars("chromosomal stasis in eukaryotic clades", k=3)
     for e in exs:
         print(f"  [{e['similarity']:.4f}] {e['title'][:70]}")
+    print("Foundation ready:", is_foundation_ready())
+    hits = retrieve_similar_sentences("sex chromosome evolution drives speciation", k=3)
+    print("Sentence hits:", hits)

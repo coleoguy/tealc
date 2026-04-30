@@ -1,4 +1,4 @@
-"""Zenodo deposition client for Tealc (Heath Blackmon lab).
+"""Zenodo deposition client for Tealc.
 
 Env vars:
   ZENODO_ACCESS_TOKEN      — production token (always required for production writes)
@@ -31,8 +31,9 @@ _SANDBOX: bool = os.environ.get("ZENODO_USE_SANDBOX", "0").strip() == "1"
 _BASE_URL: str = (
     "https://sandbox.zenodo.org/api" if _SANDBOX else "https://zenodo.org/api"
 )
+_RESEARCHER_EMAIL: str = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
 _HEADERS: dict[str, str] = {
-    "User-Agent": "Tealc/1.0 (blackmon@tamu.edu)",
+    "User-Agent": f"Tealc/1.0 ({_RESEARCHER_EMAIL})",
 }
 _TIMEOUT: int = 30
 _RETRY_DELAY: float = 2.0
@@ -689,7 +690,9 @@ def upload_reproducibility_bundle(
     """Upload an agent/bundle.py tarball with sensible defaults, then publish.
 
     - title: 'Reproducibility bundle: {project_name}'
-    - creators: Heath Blackmon (ORCID 0000-0002-5433-4036, Texas A&M University)
+    - creators: read from RESEARCHER_CREATOR_NAME / RESEARCHER_ORCID /
+                RESEARCHER_AFFILIATION env vars
+                (defaults: 'Researcher, A.' / '' / 'University')
     - upload_type: 'software', license: 'MIT'
     - keywords: reproducibility, phylogenetics, comparative genomics, project_name
     - If related_paper_doi given, adds an isSupplementTo relation.
@@ -702,9 +705,9 @@ def upload_reproducibility_bundle(
 
     creators = [
         {
-            "name": "Blackmon, Heath",
-            "orcid": "0000-0002-5433-4036",
-            "affiliation": "Texas A&M University",
+            "name": os.environ.get("RESEARCHER_CREATOR_NAME", "Researcher, A."),
+            "orcid": os.environ.get("RESEARCHER_ORCID", "0000-0002-5433-4036"),
+            "affiliation": os.environ.get("RESEARCHER_AFFILIATION", "Texas A&M University"),
         }
     ]
     keywords = ["reproducibility", "phylogenetics", "comparative genomics", project_name]

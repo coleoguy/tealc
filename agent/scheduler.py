@@ -16,7 +16,18 @@ from apscheduler.triggers.interval import IntervalTrigger
 # Paths
 # ---------------------------------------------------------------------------
 _HERE = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.normpath(os.path.join(_HERE, "..", "data", "agent.db"))
+
+# DB lives OUTSIDE Google Drive to avoid Drive sync zeroing the file mid-write
+# (the corruption issue that hit on Apr 24 and Apr 29). Override via env var.
+# Default: ~/Library/Application Support/tealc/agent.db (macOS standard location).
+_DEFAULT_DB_DIR = os.path.expanduser("~/Library/Application Support/tealc")
+DB_PATH = os.environ.get(
+    "TEALC_DB_PATH",
+    os.path.join(_DEFAULT_DB_DIR, "agent.db"),
+)
+# Ensure the parent dir exists for whichever path is in effect.
+os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
+
 LOG_PATH = os.path.normpath(os.path.join(_HERE, "..", "data", "scheduler.log"))
 
 # ---------------------------------------------------------------------------
@@ -652,6 +663,31 @@ def _migrate():
     """)
     conn.commit()
 
+    # subagent_runs: one row per run_subagent() call (telemetry)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS subagent_runs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at      TEXT NOT NULL,
+            finished_at     TEXT,
+            task            TEXT,
+            model           TEXT,
+            n_steps         INTEGER,
+            tokens_in       INTEGER,
+            tokens_out      INTEGER,
+            cache_read      INTEGER,
+            cache_write     INTEGER,
+            cost_usd        REAL,
+            status          TEXT,
+            error           TEXT,
+            final_text_len  INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_subagent_runs_recent
+            ON subagent_runs(started_at DESC)
+    """)
+    conn.commit()
+
     # v2: aquarium audit (daily leak scan)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS aquarium_audit_log (
@@ -739,7 +775,7 @@ def _migrate():
 
     # -------------------------------------------------------------------------
     # v8: Lab wiki infrastructure
-    # Feeds the /knowledge/ section of coleoguy.github.io. Paper findings are
+    # Feeds the /knowledge/ section of the lab's GitHub Pages site. Paper findings are
     # structured verbatim-quote records; topics are the state-of-understanding
     # pages; github_repos is the watched-repo registry (Tier 5 of the corpus).
     # -------------------------------------------------------------------------
@@ -879,7 +915,7 @@ def _migrate():
     # -------------------------------------------------------------------------
     # Grants — split off from research_projects on 2026-04-24.  `research_projects`
     # now holds STUDENT-LED PAPER PROJECTS only (source of truth: subfolders of
-    # "Blackmon Lab/Projects" in the shared Drive).  Active grant applications
+    # "Lab/Projects" in the shared Drive).  Active grant applications
     # live here; `grant_opportunities` is still the radar-scored lead table.
     # -------------------------------------------------------------------------
     conn.execute("""
@@ -1010,6 +1046,93 @@ def _migrate():
     conn.commit()
 
     # -------------------------------------------------------------------------
+    # Tier 2 Foundation — sentence-level corpus + heath_claims knowledge graph
+    # -------------------------------------------------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS heath_sentences (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            sentence_id  TEXT NOT NULL UNIQUE,
+            paper_id     TEXT NOT NULL,
+            year         INTEGER,
+            section      TEXT,
+            sentence     TEXT NOT NULL,
+            created_at   TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hs_paper_id ON heath_sentences(paper_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS heath_claims (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            paper_id       TEXT NOT NULL,
+            year           INTEGER,
+            subject        TEXT NOT NULL,
+            predicate      TEXT NOT NULL,
+            object         TEXT NOT NULL,
+            evidence_quote TEXT,
+            sentence_id    TEXT,
+            confidence     REAL,
+            created_at     TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hc_paper_id ON heath_claims(paper_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_hc_subject ON heath_claims(subject)")
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS heath_claims_fts USING fts5(
+            paper_id UNINDEXED,
+            subject,
+            predicate,
+            object,
+            evidence_quote,
+            content='heath_claims',
+            content_rowid='id'
+        )
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS heath_claims_ai AFTER INSERT ON heath_claims
+        BEGIN
+            INSERT INTO heath_claims_fts(rowid, paper_id, subject, predicate, object, evidence_quote)
+            VALUES (new.id, new.paper_id, new.subject, new.predicate, new.object, new.evidence_quote);
+        END
+    """)
+    conn.commit()
+
+    # -------------------------------------------------------------------------
+    # Tier 2 #5 — Undercited Paper Surface (citation residuals)
+    # -------------------------------------------------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS undercited_residuals (
+            snapshot_iso       TEXT,
+            paper_id           TEXT,
+            doi                TEXT,
+            year               INT,
+            observed_citations INT,
+            expected_citations REAL,
+            residual           REAL,
+            novelty_class      TEXT,
+            novelty_rationale  TEXT,
+            title              TEXT,
+            PRIMARY KEY(snapshot_iso, paper_id)
+        )
+    """)
+    conn.commit()
+
+    # -------------------------------------------------------------------------
+    # Inbox dismissals — generic per-(kind, target_id) soft-dismiss table.
+    # Inbox query LEFT JOINs against this so any item dismissed from the
+    # dashboard never re-surfaces, regardless of source table.
+    # -------------------------------------------------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS inbox_dismissals (
+            kind          TEXT NOT NULL,
+            target_id     TEXT NOT NULL,
+            dismissed_at  TEXT NOT NULL,
+            reason        TEXT,
+            PRIMARY KEY(kind, target_id)
+        )
+    """)
+    conn.commit()
+
+    # -------------------------------------------------------------------------
     # Tier 1 #1 — Prereg-to-Replication Loop columns (added 2026-04-28)
     # -------------------------------------------------------------------------
     for col_def in [
@@ -1040,6 +1163,42 @@ def _migrate():
     """)
     conn.commit()
 
+    # -------------------------------------------------------------------------
+    # Bet 3: Open Lab Notebook — publish state machine columns (2026-04-28)
+    # Each ALTER is wrapped in try/except — idempotent on repeated startup.
+    # -------------------------------------------------------------------------
+    for _col_def in [
+        "publish_state TEXT DEFAULT 'private'",
+        "published_at TEXT",
+        "public_url TEXT",
+        "code_sha TEXT",
+        "data_sha TEXT",
+        "prompt_sha TEXT",
+        "embargo_until TEXT",
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE output_ledger ADD COLUMN {_col_def}")
+            conn.commit()
+        except Exception:
+            pass  # Column already exists — safe to ignore
+
+    # publish_decisions: audit trail of every publish/redact decision
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS publish_decisions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ledger_id   INTEGER NOT NULL,
+            decision    TEXT NOT NULL,
+            reason      TEXT,
+            decided_by  TEXT NOT NULL,
+            decided_at  TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pub_decisions_ledger
+            ON publish_decisions(ledger_id)
+    """)
+    conn.commit()
+
     conn.close()
 
 
@@ -1054,6 +1213,8 @@ def register_jobs(scheduler: AsyncIOScheduler):
     from agent.jobs.morning_briefing import job as morning_briefing_job  # noqa: PLC0415
     from agent.jobs.grant_radar import job as grant_radar_job  # noqa: PLC0415
     from agent.jobs.web_grant_radar import job as web_grant_radar_job  # noqa: PLC0415
+    from agent.jobs.undercited_papers import job as undercited_papers_job  # noqa: PLC0415
+    from agent.jobs.idle_research_task import job as idle_research_task_job  # noqa: PLC0415
     from agent.jobs.student_pulse import job as student_pulse_job  # noqa: PLC0415
     from agent.jobs.refresh_context import job as refresh_context_job  # noqa: PLC0415
     from agent.jobs.executive import job as executive_job  # noqa: PLC0415
@@ -1107,6 +1268,8 @@ def register_jobs(scheduler: AsyncIOScheduler):
     from agent.jobs.method_promoter import job as method_promoter_job  # noqa: PLC0415
     from agent.jobs.sync_lab_projects import job as sync_lab_projects_job  # noqa: PLC0415
     from agent.jobs.prereg_replication_loop import run_monday_prereg, run_daily_t7_sweep  # noqa: PLC0415
+    from agent.jobs.notebook_publisher import job as notebook_publisher_job  # noqa: PLC0415
+    from agent.jobs.notebook_index import job as notebook_index_job  # noqa: PLC0415
 
     scheduler.add_job(
         heartbeat_job,
@@ -1138,6 +1301,27 @@ def register_jobs(scheduler: AsyncIOScheduler):
         web_grant_radar_job,
         CronTrigger(day_of_week="mon", hour=7, minute=0, timezone="America/Chicago"),
         id="web_grant_radar",
+        replace_existing=True,
+    )
+
+    # Tier 2 #5 — Undercited papers (monthly, 1st of month, 9am Central)
+    # Computes citation residuals across Heath's 63 papers; top undercited
+    # flagship feeds the NAS case packet narrative.
+    scheduler.add_job(
+        undercited_papers_job,
+        CronTrigger(day=1, hour=9, minute=0, timezone="America/Chicago"),
+        id="undercited_papers",
+        replace_existing=True,
+    )
+
+    # idle_research_task — hourly during work hours (8am-7pm CT). Internal idle-gate
+    # skips when Heath is active in chat. Picks one short task from a menu (preprint
+    # scout, self-citation prospector, hypothesis stress-test, undercited memo,
+    # method scout). Each run capped at $0.30.
+    scheduler.add_job(
+        idle_research_task_job,
+        CronTrigger(hour="8-19", minute=0, timezone="America/Chicago"),
+        id="idle_research_task",
         replace_existing=True,
     )
 
@@ -1531,6 +1715,19 @@ def register_jobs(scheduler: AsyncIOScheduler):
         sync_lab_projects_job,
         CronTrigger(hour=3, minute=30, timezone="America/Chicago"),
         id="sync_lab_projects", replace_existing=True,
+    )
+
+    # Bet 3: Open Lab Notebook — drain publish queue every 30 min
+    scheduler.add_job(
+        notebook_publisher_job,
+        IntervalTrigger(minutes=30),
+        id="notebook_publisher", replace_existing=True,
+    )
+    # Bet 3: Open Lab Notebook — regenerate index every 2 hours
+    scheduler.add_job(
+        notebook_index_job,
+        IntervalTrigger(hours=2),
+        id="notebook_index", replace_existing=True,
     )
 
     log.info("Jobs registered: heartbeat, morning_briefing, grant_radar, student_pulse, refresh_context, executive, email_triage, paper_of_the_day, summarize_sessions, weekly_review, watch_deadlines, email_burst, track_nas_metrics, daily_plan, nas_impact_score, quarterly_retrospective, goal_conflict_check, nightly_literature_synthesis, nightly_grant_drafter, weekly_database_health, weekly_comparative_analysis, weekly_hypothesis_generator, retrieval_quality_monitor, aquarium_audit, replication_docs, preference_consolidator, midday_check, deadline_countdown, next_action_filler, meeting_prep, vip_email_watch, nas_pipeline_health, cross_project_synthesis, student_agenda_drafter, populate_project_keywords, publish_aquarium, exploratory_analysis, nas_case_packet, rebuild_voice_index, publish_dashboard, publish_abilities, wiki_janitor, refresh_enrichment, improve_wiki, projects_mirror, contradictions_index, open_questions_index, gloss_harvester, method_promoter, prereg_monday, prereg_t7_sweep (sync_goals_sheet RETIRED — use export_state_to_sheet tool)")

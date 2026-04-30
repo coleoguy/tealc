@@ -59,7 +59,10 @@ _JOB_NAME = "gloss_harvester"
 _HAIKU_MODEL = "claude-haiku-4-5-20251001"
 _SONNET_MODEL = "claude-sonnet-4-6"
 
-_WIKI_ROOT = os.path.expanduser("~/Desktop/GitHub/coleoguy.github.io")
+_WIKI_ROOT = os.environ.get(
+    "TEALC_WEBSITE_REPO",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages"),
+)
 _KNOWLEDGE_ROOT = os.path.join(_WIKI_ROOT, "knowledge")
 _CONCEPTS_DIR = os.path.join(_KNOWLEDGE_ROOT, "concepts")
 _CONCEPTS_JSON = os.path.join(_KNOWLEDGE_ROOT, "data", "concepts.json")
@@ -201,8 +204,7 @@ def _load_writer_prompt() -> str:
 
 
 _VERIFIER_SYSTEM = """\
-You are an adversarial verifier of a concept-card proposal for the Blackmon
-Lab wiki.  Your job is the subjective check that cannot be automated: does
+You are an adversarial verifier of a concept-card proposal for the lab wiki.  Your job is the subjective check that cannot be automated: does
 this card belong on the wiki?
 
 Score on four dimensions (same structure as the lab's finding verifier):

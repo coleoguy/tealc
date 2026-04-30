@@ -33,7 +33,7 @@ DEADLINES_PATH = os.path.join(_DATA, "deadlines.json")
 SEEN_PATH = os.path.join(_DATA, "last_seen_state.json")
 
 # ---------------------------------------------------------------------------
-# Heath's keyword set for literature monitoring
+# the researcher's keyword set for literature monitoring
 # ---------------------------------------------------------------------------
 KEYWORDS = [
     "fragile Y hypothesis",
@@ -102,8 +102,8 @@ def _fetch_top_grants_from_db() -> str:
 # ---------------------------------------------------------------------------
 @tracked("morning_briefing")
 def job() -> str:
-    """Assemble and store Heath's daily morning briefing."""
-    # Heath can toggle this job via the Control tab (data/tealc_config.json).
+    """Assemble and store the researcher's daily morning briefing."""
+    # the researcher can toggle this job via the Control tab (data/tealc_config.json).
     try:
         from agent.config import should_run_this_cycle  # noqa: PLC0415
         if not should_run_this_cycle("morning_briefing"):
@@ -131,11 +131,11 @@ def job() -> str:
         today_calendar = f"Tool failed: list_upcoming_events — {exc}"
 
     try:
-        citations = track_citations.invoke({"author_name": "Heath Blackmon", "max_results": 15})
+        citations = track_citations.invoke({"author_name": "the researcher", "max_results": 15})
     except Exception as exc:
         citations = f"Tool failed: track_citations — {exc}"
 
-    # 2. Search literature in Heath's keyword set
+    # 2. Search literature in the researcher's keyword set
     new_papers: list[str] = []
     for kw in KEYWORDS:
         try:
@@ -185,7 +185,7 @@ def job() -> str:
         model="claude-sonnet-4-6",
         max_tokens=3000,
         system=(
-            "You are Tealc preparing Heath Blackmon's morning briefing. Be terse. "
+            "You are Tealc preparing the researcher's morning briefing. Be terse. "
             "Use this exact structure with these headers in this order:\n"
             "## Today's calendar\n"
             "## Emails needing action\n"

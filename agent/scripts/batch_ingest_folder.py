@@ -1,7 +1,7 @@
 """Batch-ingest all PDFs in a Google Drive folder into the lab wiki.
 
 Always runs in dry_run mode — every successful paper stages files under
-coleoguy.github.io/knowledge/, but nothing is committed to git. At the end,
+the lab's GitHub Pages /knowledge/, but nothing is committed to git. At the end,
 the user reviews the aggregate diff and commits + pushes once.
 
 Dedup is handled automatically by the wiki_pipeline entry point: any PDF
@@ -24,7 +24,7 @@ Example (Lab Papers folder, skipping obvious non-research):
         --skip "2022 spines" --skip "fourth report" --skip "DirectRepeateR"
 
 After it finishes, commit with:
-    cd /Users/blackmon/Desktop/GitHub/coleoguy.github.io && \\
+    cd ~/Desktop/GitHub/lab-pages && \\
       git add knowledge/ && git commit -m "[tealc] bulk ingest: ..." && git push
 """
 from __future__ import annotations
@@ -223,7 +223,7 @@ def main(argv: list[str]) -> int:
                     print(f"      {e[:300]}")
 
     print(f"\nNext step — review the diff, then commit + push once:")
-    print(f"  cd /Users/blackmon/Desktop/GitHub/coleoguy.github.io")
+    print(f"  cd ~/Desktop/GitHub/lab-pages")
     print(f"  git diff --stat knowledge/")
     print(f"  git add knowledge/ && git commit -m '[tealc] bulk ingest' && git push")
 

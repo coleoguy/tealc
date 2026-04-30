@@ -51,25 +51,25 @@ _DAYS_BACK_LIT = 14
 # ---------------------------------------------------------------------------
 
 _HYPOTHESIS_SYSTEM = (
-    "You propose 1-2 new testable hypotheses for Heath Blackmon's research project. "
+    "You propose 1-2 new testable hypotheses for the researcher's research project. "
     "He works in genome structure evolution, sex chromosomes, comparative phylogenetics, "
     "karyotype evolution. The project's current hypothesis and the literature notes below "
     "frame what's already known. "
     "\n\n"
     "CRITICAL: the user message includes an EXISTING CLAIMS block — these are synthesized "
-    "topic pages from Heath's lab wiki covering findings from HIS OWN prior papers. Before "
+    "topic pages from the lab wiki covering findings from HIS OWN prior papers. Before "
     "finalizing any hypothesis, check it against those claims. If an existing finding "
     "already supports, refutes, or has previously tested the hypothesis, DO NOT propose it "
     "as novel — either refine into a genuine extension (new clade, new method, new time "
-    "window, new mechanism step) or output {\"hypotheses\": []} honestly. Heath will not "
+    "window, new mechanism step) or output {\"hypotheses\": []} honestly. the researcher will not "
     "be surprised by a hypothesis that restates his own prior work; he will be surprised "
     "by one the wiki doesn't already answer. The 2026-04-21 Fragile Y failure (proposing "
-    "what Blackmon & Demuth 2014 already tested) is the exact failure mode this rule exists "
+    "what Smith & Jones 2014 already tested) is the exact failure mode this rule exists "
     "to prevent. "
     "\n\n"
     "Propose hypotheses that: "
     "(a) BUILD ON or CONTRADICT specific findings from the literature (cite DOIs); "
-    "(b) are testable with data Heath plausibly has access to (Coleoptera + Diptera + Mammalia "
+    "(b) are testable with data the researcher plausibly has access to (Coleoptera + Diptera + Mammalia "
     "karyotype DBs, Tree of Sex, time-calibrated phylogenies, comparative methods); "
     "(c) are not trivial restatements of the existing hypothesis OR of anything in EXISTING CLAIMS. "
     'Output JSON: {"hypotheses": [{"hypothesis_md": "<2-4 sentences>", '
@@ -104,8 +104,8 @@ def _call_sonnet_for_hypotheses(
     msg_object is the raw Anthropic response for cost/usage logging.
     system_prompt overrides _HYPOTHESIS_SYSTEM when provided (used to prepend voice exemplars).
     wiki_block, if non-empty, is prepended to the user message as EXISTING CLAIMS
-    (synthesized prior findings from Heath's lab wiki) — the LLM must check against it
-    before proposing to avoid duplicating Heath's own published results.
+    (synthesized prior findings from the lab wiki) — the LLM must check against it
+    before proposing to avoid duplicating the researcher's own published results.
     """
     lit_block_parts = []
     for i, note in enumerate(lit_notes, 1):
@@ -121,7 +121,7 @@ def _call_sonnet_for_hypotheses(
     if wiki_block:
         slugs_str = ", ".join(consulted_slugs or [])
         wiki_section = (
-            f"=== EXISTING CLAIMS (synthesized from Heath's lab wiki — topics consulted: {slugs_str}) ===\n"
+            f"=== EXISTING CLAIMS (synthesized from the lab wiki — topics consulted: {slugs_str}) ===\n"
             f"Before proposing, check each candidate hypothesis against these findings. "
             f"Do not re-propose anything already tested or established below.\n\n"
             f"{wiki_block}\n\n"
@@ -131,7 +131,7 @@ def _call_sonnet_for_hypotheses(
         wiki_section = (
             "=== EXISTING CLAIMS ===\n"
             "No matching topic pages found in the lab wiki for this project's claim domain. "
-            "Proceed, but be especially careful — Heath's 65+ published papers may already "
+            "Proceed, but be especially careful — the researcher's 65+ published papers may already "
             "cover this ground even if the wiki does not.\n\n"
             "=== END EXISTING CLAIMS ===\n\n"
         )
@@ -208,7 +208,7 @@ def _call_sonnet_for_hypotheses(
 @tracked("weekly_hypothesis_generator")
 def job() -> str:
     """For each active research project with a hypothesis, propose new testable hypotheses."""
-    # Heath can toggle this job via the Control tab (data/tealc_config.json).
+    # the researcher can toggle this job via the Control tab (data/tealc_config.json).
     try:
         from agent.config import should_run_this_cycle  # noqa: PLC0415
         if not should_run_this_cycle("weekly_hypothesis_generator"):
@@ -300,7 +300,7 @@ def job() -> str:
 
         # 3c. WIKI CONSULTATION — pick relevant topic pages for this project's
         # claim domain and inject into user message so Sonnet can check against
-        # Heath's already-published findings before proposing.
+        # the researcher's already-published findings before proposing.
         _wiki_query = " ".join(filter(None, [
             proj_name, current_hypothesis, proj_desc or "", proj_keywords or "",
         ]))
@@ -494,7 +494,7 @@ def job() -> str:
                     "ledger_id": h.get("_ledger_id"),
                 })
 
-    # 3e. Cross-project tournament (Sonnet pairwise) when N >= 3 — gives Heath
+    # 3e. Cross-project tournament (Sonnet pairwise) when N >= 3 — gives the researcher
     # a ranked list across all proposals from this run, not just within projects.
     tournament_block = ""
     if len(_all_proposals_this_run) >= 3:

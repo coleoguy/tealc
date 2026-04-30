@@ -232,9 +232,10 @@ async def run_job(req: RunJobRequest):
 
 class ActionRequest(BaseModel):
     action: str
-    target_id: int | None = None
+    target_id: int | str | None = None  # string allowed for prefixed inbox IDs (e.g. "grant_27")
     reason: str | None = None
     outcome: str | None = None
+    kind: str | None = None  # used by dismiss_inbox_item to scope the dismissal
 
 
 _VALID_ACTIONS = {
@@ -246,6 +247,7 @@ _VALID_ACTIONS = {
     "investigate_hypothesis",
     "create_project_folder",
     "dismiss_grant_opportunity",
+    "dismiss_inbox_item",
     "defer_stalled_goal",
 }
 
@@ -255,9 +257,9 @@ _VALID_REJECT_REASONS = {"out of lab scope", "flawed logic", "not novel"}
 # Lab Drive "Projects" root — canonical location for student-led paper
 # projects.  Used by create_project_folder to materialize a new project
 # subtree from a hypothesis proposal.
-_LAB_PROJECTS_ROOT = os.path.expanduser(
-    "~/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/"
-    "Shared drives/Blackmon Lab/Projects"
+_LAB_PROJECTS_ROOT = os.environ.get(
+    "LAB_PROJECTS_ROOT",
+    os.path.expanduser("~/Library/CloudStorage/GoogleDrive/Shared drives/Lab/Projects")
 )
 _PROJECT_SUBDIRS = ("analysis", "data", "figures", "manuscript")
 
@@ -497,22 +499,85 @@ async def action(req: ActionRequest):
         elif req.action == "dismiss_grant_opportunity":
             if req.target_id is None:
                 raise HTTPException(status_code=400, detail="target_id required for dismiss_grant_opportunity")
+            # accept either a bare int or a prefixed string like "grant_27"
+            raw_id = str(req.target_id)
+            grant_pk = raw_id.replace("grant_", "") if raw_id.startswith("grant_") else raw_id
+            try:
+                grant_pk_int = int(grant_pk)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"unparseable target_id: {req.target_id!r}")
+            # Update BOTH dismissed (boolean) and dismissed_at (timestamp) so
+            # the legacy and new inbox queries both honor the dismissal.
             conn.execute(
-                "UPDATE grant_opportunities SET dismissed_at=?, dismiss_reason=? WHERE id=?",
-                (now, req.reason or "", req.target_id),
+                "UPDATE grant_opportunities SET dismissed=1, dismissed_at=?, dismiss_reason=? WHERE id=?",
+                (now, req.reason or "", grant_pk_int),
             )
             conn.commit()
+            # Also record in the generic inbox_dismissals table so the unified
+            # inbox honors this regardless of source-table column drift.
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO inbox_dismissals (kind, target_id, dismissed_at, reason) VALUES (?, ?, ?, ?)",
+                    ("grant", f"grant_{grant_pk_int}", now, req.reason or ""),
+                )
+                conn.commit()
+            except Exception as exc:
+                print(f"[dashboard] inbox_dismissals write failed: {exc}")
             try:
                 conn.execute(
                     "INSERT INTO preference_signals(captured_at, signal_type, target_kind, target_id, user_reason) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    (now, "dismiss", "grant_opportunity", req.target_id, req.reason),
+                    (now, "dismiss", "grant_opportunity", grant_pk_int, req.reason),
                 )
                 conn.commit()
             except Exception as exc:
                 print(f"[dashboard] signal-write failed: {exc}")
             conn.close()
-            return JSONResponse({"ok": True, "action": "dismiss_grant_opportunity", "id": req.target_id})
+            return JSONResponse({"ok": True, "action": "dismiss_grant_opportunity", "id": grant_pk_int})
+
+        elif req.action == "dismiss_inbox_item":
+            # Generic soft-dismiss for any inbox item. Stored in a separate
+            # inbox_dismissals table so the unified inbox query LEFT JOINs
+            # against it — never touches source rows.
+            if req.target_id is None:
+                raise HTTPException(status_code=400, detail="target_id required for dismiss_inbox_item")
+            kind = (req.kind or "").strip()
+            if not kind:
+                raise HTTPException(status_code=400, detail="kind required for dismiss_inbox_item")
+            tid = str(req.target_id)
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO inbox_dismissals (kind, target_id, dismissed_at, reason) VALUES (?, ?, ?, ?)",
+                    (kind, tid, now, req.reason or ""),
+                )
+                conn.commit()
+            except Exception as exc:
+                conn.close()
+                raise HTTPException(status_code=500, detail=f"inbox_dismissals write failed: {exc}")
+            # Best-effort preference signal
+            try:
+                conn.execute(
+                    "INSERT INTO preference_signals(captured_at, signal_type, target_kind, target_id, user_reason) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (now, "dismiss", kind, tid, req.reason),
+                )
+                conn.commit()
+            except Exception as exc:
+                print(f"[dashboard] preference signal write failed: {exc}")
+            # Bonus: if it was a grant, mirror the column update so the legacy
+            # query honors it too.
+            if kind == "grant" and tid.startswith("grant_"):
+                try:
+                    grant_pk_int = int(tid.replace("grant_", ""))
+                    conn.execute(
+                        "UPDATE grant_opportunities SET dismissed=1, dismissed_at=?, dismiss_reason=? WHERE id=?",
+                        (now, req.reason or "", grant_pk_int),
+                    )
+                    conn.commit()
+                except Exception:
+                    pass
+            conn.close()
+            return JSONResponse({"ok": True, "action": "dismiss_inbox_item", "kind": kind, "id": tid})
 
         elif req.action == "defer_stalled_goal":
             if req.target_id is None:

@@ -7,7 +7,7 @@ Source of truth for who is a VIP: data/vip_senders.json (Heath owns this file).
 Each match inserts a briefing with kind='vip_email' and urgency='critical'.
 
 Run manually:
-    cd "/Users/blackmon/Google Drive/My Drive/00-Lab-Agent"
+    cd "$HOME/Google Drive/My Drive/00-Lab-Agent"
     python -m agent.jobs.vip_email_watch
 """
 import json

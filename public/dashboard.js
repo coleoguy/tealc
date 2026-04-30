@@ -2663,7 +2663,7 @@ function flashProjectsStatus(msg, isError=false) {
 /* ── Inbox tab — unified feedback queue ──────────────────────────────────── */
 
 function flashInboxStatus(msg, isError=false) {
-  const el = document.getElementById('inboxStatus');
+  const el = document.getElementById('unifiedInboxStatus');
   if (!el) return;
   el.textContent = msg;
   el.className = 'control-status' + (isError ? ' error' : ' ok');
@@ -2673,11 +2673,10 @@ function flashInboxStatus(msg, isError=false) {
 /* Optimistic action: POST /api/action, hide the card on success.  Errors
    restore the card and flash a message — no wait for state.json to refresh. */
 async function inboxAction(card, payload) {
-  const err = card.querySelector('.inline-error');
+  const err = card ? card.querySelector('.inline-error') : null;
   if (err) err.textContent = '';
   // Visual: dim the card immediately so the click feels instant
-  card.style.opacity = '0.4';
-  card.style.pointerEvents = 'none';
+  if (card) { card.style.opacity = '0.4'; card.style.pointerEvents = 'none'; }
   try {
     const res = await fetch('/api/action', {
       method: 'POST',
@@ -2688,219 +2687,17 @@ async function inboxAction(card, payload) {
     if (!res.ok || data.ok === false) {
       const msg = (data && (data.error || data.detail)) || ('HTTP ' + res.status);
       flashInboxStatus(`${payload.action}: ${String(msg).slice(0, 160)}`, true);
-      card.style.opacity = '1';
-      card.style.pointerEvents = '';
+      if (card) { card.style.opacity = '1'; card.style.pointerEvents = ''; }
       if (err) err.textContent = msg;
       return false;
     }
     flashInboxStatus(`${payload.action.replace(/_/g,' ')} ✓`);
-    card.remove();
-    updateInboxBadge();
+    if (card) card.remove();
     return true;
   } catch (e) {
     flashInboxStatus(`network: ${e.message}`, true);
-    card.style.opacity = '1';
-    card.style.pointerEvents = '';
+    if (card) { card.style.opacity = '1'; card.style.pointerEvents = ''; }
     return false;
-  }
-}
-
-function updateInboxBadge() {
-  const badge = document.getElementById('inboxBadge');
-  if (!badge) return;
-  const n = document.querySelectorAll('#tab-inbox .inbox-card').length;
-  badge.textContent = n > 0 ? String(n) : '';
-}
-
-function makeInboxCard(kind, title, metaHtml, bodyHtml, actionsEl) {
-  const card = document.createElement('div');
-  card.className = 'card inbox-card inbox-' + kind;
-  const titleEl = document.createElement('div');
-  titleEl.className = 'card-title';
-  titleEl.textContent = title;
-  card.appendChild(titleEl);
-  if (metaHtml) {
-    const meta = document.createElement('div');
-    meta.className = 'card-meta';
-    meta.innerHTML = metaHtml;
-    card.appendChild(meta);
-  }
-  if (bodyHtml) {
-    const body = document.createElement('div');
-    body.className = 'card-body';
-    body.innerHTML = bodyHtml;
-    card.appendChild(body);
-  }
-  if (actionsEl) card.appendChild(actionsEl);
-  const err = document.createElement('div');
-  err.className = 'inline-error';
-  card.appendChild(err);
-  return card;
-}
-
-function renderInboxHypotheses(items) {
-  const container = document.getElementById('inboxHypotheses');
-  container.innerHTML = '';
-  if (!items || !items.length) return;
-  const h = document.createElement('h2');
-  h.textContent = `Hypotheses awaiting feedback (${items.length})`;
-  container.appendChild(h);
-  items.forEach(item => {
-    const shortHyp = (item.hypothesis_md || '').slice(0, 280);
-    const meta = [
-      item.project_name ? `<strong>${item.project_name}</strong>` : '',
-      item.proposed_iso ? fmtDate(item.proposed_iso) : '',
-      item.novelty_score != null ? `novelty ${item.novelty_score.toFixed(2)}` : '',
-      item.feasibility_score != null ? `feasibility ${item.feasibility_score.toFixed(2)}` : '',
-      item.status && item.status !== 'proposed' ? `<em>${item.status}</em>` : '',
-    ].filter(Boolean).join(' · ');
-    const body = [
-      shortHyp ? `<p>${shortHyp}${item.hypothesis_md.length > 280 ? '…' : ''}</p>` : '',
-      item.rationale_md ? `<details><summary>Rationale</summary><p>${renderMd(item.rationale_md)}</p></details>` : '',
-      item.proposed_test_md ? `<details><summary>Proposed test</summary><p>${renderMd(item.proposed_test_md)}</p></details>` : '',
-      item.cited_paper_dois ? `<div class="card-meta">DOIs: ${item.cited_paper_dois}</div>` : '',
-    ].filter(Boolean).join('');
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    const card = makeInboxCard('hypothesis', `#${item.id}`, meta, body, actions);
-
-    actions.appendChild(makeBtn('Adopt', 'btn-primary', () =>
-      inboxAction(card, { action: 'adopt_hypothesis', target_id: item.id })));
-    actions.appendChild(makeBtn('Investigate', '', () =>
-      inboxAction(card, { action: 'investigate_hypothesis', target_id: item.id })));
-    actions.appendChild(makeBtn('Create project folder', 'btn-primary', () => {
-      const first4 = (item.hypothesis_md || '').split(/\s+/).slice(0, 4).join(' ');
-      const folder = window.prompt('Folder name (will be created under Blackmon Lab/Projects/):', first4);
-      if (!folder) return;
-      inboxAction(card, { action: 'create_project_folder', target_id: item.id, reason: folder.trim() });
-    }));
-    ['out of lab scope', 'flawed logic', 'not novel'].forEach(reason => {
-      actions.appendChild(makeBtn(`Reject: ${reason}`, '', () =>
-        inboxAction(card, { action: 'reject_hypothesis', target_id: item.id, reason })));
-    });
-    container.appendChild(card);
-  });
-}
-
-function renderInboxBriefings(items) {
-  const container = document.getElementById('inboxBriefings');
-  container.innerHTML = '';
-  if (!items || !items.length) return;
-  const h = document.createElement('h2');
-  h.textContent = `Briefings (${items.length})`;
-  container.appendChild(h);
-  items.forEach(item => {
-    const meta = [
-      item.kind || '',
-      item.urgency ? `urgency: ${item.urgency}` : '',
-      item.created_at ? fmtDate(item.created_at) : '',
-    ].filter(Boolean).join(' · ');
-    const body = item.content_md ? renderMd(item.content_md.slice(0, 1200)) : '';
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    const card = makeInboxCard('briefing', item.title || `#${item.id}`, meta, body, actions);
-    actions.appendChild(makeBtn('Dismiss', 'btn-primary', () =>
-      inboxAction(card, { action: 'complete_briefing', target_id: item.id })));
-    actions.appendChild(makeBtn('Defer', '', () => {
-      const reason = window.prompt('Defer reason (optional)?') || '';
-      inboxAction(card, { action: 'defer_briefing', target_id: item.id, reason });
-    }));
-    container.appendChild(card);
-  });
-}
-
-function renderInboxDrafts(items) {
-  const container = document.getElementById('inboxDrafts');
-  container.innerHTML = '';
-  if (!items || !items.length) return;
-  const h = document.createElement('h2');
-  h.textContent = `Overnight drafts (${items.length})`;
-  container.appendChild(h);
-  items.forEach(item => {
-    const meta = [
-      item.project_name ? `<strong>${item.project_name}</strong>` : '',
-      item.drafted_section || '',
-      item.created_at ? fmtDate(item.created_at) : '',
-    ].filter(Boolean).join(' · ');
-    const body = [
-      item.draft_doc_url ? `<p><a href="${item.draft_doc_url}" target="_blank" rel="noopener">Open draft doc →</a></p>` : '',
-      item.reasoning ? `<p><em>Reasoning:</em> ${item.reasoning}</p>` : '',
-    ].filter(Boolean).join('');
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    const card = makeInboxCard('draft', `Draft #${item.id}`, meta, body, actions);
-    actions.appendChild(makeBtn('Accept', 'btn-primary', () =>
-      inboxAction(card, { action: 'review_draft', target_id: item.id, outcome: 'accepted' })));
-    actions.appendChild(makeBtn('Edit', '', () =>
-      inboxAction(card, { action: 'review_draft', target_id: item.id, outcome: 'edited' })));
-    actions.appendChild(makeBtn('Reject', '', () => {
-      const reason = window.prompt('Reject reason (optional)?') || '';
-      inboxAction(card, { action: 'review_draft', target_id: item.id, outcome: 'rejected', reason });
-    }));
-    container.appendChild(card);
-  });
-}
-
-function renderInboxGrants(items) {
-  const container = document.getElementById('inboxGrants');
-  container.innerHTML = '';
-  if (!items || !items.length) return;
-  const h = document.createElement('h2');
-  h.textContent = `Grant opportunities (${items.length})`;
-  container.appendChild(h);
-  items.forEach(item => {
-    const meta = [
-      item.source || '',
-      item.program || '',
-      item.fit_score != null ? `fit ${Number(item.fit_score).toFixed(2)}` : '',
-      item.deadline_iso ? `deadline ${item.deadline_iso.slice(0,10)}` : '',
-    ].filter(Boolean).join(' · ');
-    const body = [
-      item.url ? `<p><a href="${item.url}" target="_blank" rel="noopener">Open opportunity →</a></p>` : '',
-      item.fit_reasoning ? `<p><em>Fit reasoning:</em> ${item.fit_reasoning}</p>` : '',
-      item.description ? `<details><summary>Description</summary><p>${item.description}</p></details>` : '',
-    ].filter(Boolean).join('');
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    const card = makeInboxCard('grant', item.title || `#${item.id}`, meta, body, actions);
-    actions.appendChild(makeBtn('Dismiss', '', () => {
-      const reason = window.prompt('Dismiss reason (optional)?') || '';
-      inboxAction(card, { action: 'dismiss_grant_opportunity', target_id: item.id, reason });
-    }));
-    container.appendChild(card);
-  });
-}
-
-async function loadInbox() {
-  const hdr = document.getElementById('inboxHeader');
-  hdr.innerHTML = '';
-  const h = document.createElement('h1');
-  h.textContent = 'Inbox';
-  hdr.appendChild(h);
-  const bar = document.createElement('div');
-  bar.className = 'actions';
-  bar.appendChild(makeBtn('Refresh', 'btn-primary', () => loadInbox()));
-  hdr.appendChild(bar);
-
-  try {
-    const res = await fetch('/api/inbox');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    renderInboxHypotheses(data.hypotheses || []);
-    renderInboxBriefings(data.briefings || []);
-    renderInboxDrafts(data.drafts || []);
-    renderInboxGrants(data.grants || []);
-    updateInboxBadge();
-    const total = (data.hypotheses||[]).length + (data.briefings||[]).length +
-                  (data.drafts||[]).length + (data.grants||[]).length;
-    if (total === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'empty';
-      empty.textContent = 'Inbox clear. Nothing waiting for your feedback.';
-      hdr.appendChild(empty);
-    }
-  } catch (e) {
-    flashInboxStatus('Load failed: ' + e.message, true);
   }
 }
 
@@ -3045,6 +2842,249 @@ async function loadPrereg() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   INBOX DETAIL MODAL
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Returns (or lazily creates) the single modal DOM node. */
+function _getInboxModal() {
+  let m = document.getElementById('inboxDetailModal');
+  if (m) return m;
+
+  m = document.createElement('div');
+  m.id = 'inboxDetailModal';
+  m.style.cssText = [
+    'display:none',
+    'position:fixed',
+    'inset:0',
+    'z-index:9000',
+    'background:rgba(0,0,0,0.55)',
+    'align-items:flex-start',
+    'justify-content:center',
+    'padding:40px 16px',
+    'overflow-y:auto',
+  ].join(';');
+
+  const box = document.createElement('div');
+  box.id = 'inboxDetailBox';
+  box.style.cssText = [
+    'background:var(--paper-raised,#fff)',
+    'border:1px solid var(--rule,#d8ccba)',
+    'border-radius:8px',
+    'width:100%',
+    'max-width:760px',
+    'padding:24px 28px',
+    'position:relative',
+    'box-shadow:0 8px 32px rgba(0,0,0,0.18)',
+  ].join(';');
+  m.appendChild(box);
+
+  // Close on backdrop click
+  m.addEventListener('click', (e) => { if (e.target === m) closeInboxModal(); });
+
+  document.body.appendChild(m);
+  return m;
+}
+
+function closeInboxModal() {
+  const m = document.getElementById('inboxDetailModal');
+  if (m) { m.style.display = 'none'; m.style.alignItems = ''; }
+}
+
+/* Open the modal and populate it for a given unified-inbox item + its card. */
+function openInboxModal(item, card) {
+  const m = _getInboxModal();
+  const box = document.getElementById('inboxDetailBox');
+  box.innerHTML = '';
+
+  // ── Close button ──────────────────────────────────────────────────────
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '×';
+  closeBtn.title = 'Close';
+  closeBtn.style.cssText = [
+    'position:absolute',
+    'top:14px',
+    'right:16px',
+    'background:none',
+    'border:none',
+    'font-size:22px',
+    'line-height:1',
+    'cursor:pointer',
+    'color:var(--ink-faint,#8b7a72)',
+    'padding:0 4px',
+  ].join(';');
+  closeBtn.addEventListener('click', closeInboxModal);
+  box.appendChild(closeBtn);
+
+  // ── Header ────────────────────────────────────────────────────────────
+  const kindBadge = document.createElement('span');
+  kindBadge.style.cssText = `background:${KIND_COLOR[item.kind] || '#64748b'};color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:.5px;margin-right:8px`;
+  kindBadge.textContent = KIND_LABEL[item.kind] || (item.kind || '').toUpperCase();
+
+  const titleEl = document.createElement('h2');
+  titleEl.style.cssText = 'font-size:1.15rem;margin:0 0 4px 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-right:28px';
+  titleEl.appendChild(kindBadge);
+  titleEl.appendChild(document.createTextNode(item.title || '(untitled)'));
+  box.appendChild(titleEl);
+
+  // ── Metadata ──────────────────────────────────────────────────────────
+  const metaParts = [
+    item.created_at ? fmtDate(item.created_at) : '',
+    item.urgency != null ? `urgency ${item.urgency}/5` : '',
+  ].filter(Boolean);
+  if (metaParts.length) {
+    const metaEl = document.createElement('div');
+    metaEl.style.cssText = 'font-size:12px;color:var(--ink-faint,#8b7a72);margin-bottom:14px';
+    metaEl.textContent = metaParts.join(' · ');
+    box.appendChild(metaEl);
+  }
+
+  // ── Content ───────────────────────────────────────────────────────────
+  if (item.content_md) {
+    const pre = document.createElement('pre');
+    pre.style.cssText = [
+      'font-family:var(--font-mono,monospace)',
+      'font-size:12px',
+      'line-height:1.55',
+      'white-space:pre-wrap',
+      'word-break:break-word',
+      'background:var(--paper-sunk,#f3ece0)',
+      'border:1px solid var(--rule,#d8ccba)',
+      'border-radius:6px',
+      'padding:14px 16px',
+      'max-height:400px',
+      'overflow-y:auto',
+      'margin-bottom:18px',
+      'color:var(--ink,#1e1713)',
+    ].join(';');
+    pre.textContent = item.content_md;
+    box.appendChild(pre);
+  }
+
+  // ── Error display ─────────────────────────────────────────────────────
+  const errEl = document.createElement('div');
+  errEl.className = 'inline-error';
+  errEl.style.cssText = 'margin-bottom:8px';
+  box.appendChild(errEl);
+
+  // ── Action buttons ────────────────────────────────────────────────────
+  const actionsDiv = document.createElement('div');
+  actionsDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px';
+
+  // Helper: run action, close modal & remove card on success
+  const doAction = async (payload) => {
+    errEl.textContent = '';
+    const ok = await inboxAction(null, payload);
+    if (ok) {
+      closeInboxModal();
+      if (card) card.remove();
+    } else {
+      errEl.textContent = 'Action failed — see status bar';
+    }
+  };
+
+  // Per-kind primary actions
+  if (item.kind === 'ledger') {
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-primary';
+    btn.textContent = 'Mark reviewed';
+    btn.addEventListener('click', () => doAction({
+      action: 'dismiss_inbox_item', kind: 'ledger', target_id: item.id, reason: 'reviewed',
+    }));
+    actionsDiv.appendChild(btn);
+
+  } else if (item.kind === 'hypothesis') {
+    // target_id for hypothesis actions is the integer part (strip "hyp_" prefix)
+    const hypId = String(item.id).replace(/^hyp_/i, '');
+    const adoptBtn = document.createElement('button');
+    adoptBtn.className = 'btn btn-primary';
+    adoptBtn.textContent = 'Adopt';
+    adoptBtn.addEventListener('click', () => doAction({ action: 'adopt_hypothesis', target_id: hypId }));
+    actionsDiv.appendChild(adoptBtn);
+
+    const rejectBtn = document.createElement('button');
+    rejectBtn.className = 'btn';
+    rejectBtn.textContent = 'Reject';
+    rejectBtn.addEventListener('click', () => {
+      const reason = window.prompt('Reject reason?') || 'out of lab scope';
+      doAction({ action: 'reject_hypothesis', target_id: hypId, reason });
+    });
+    actionsDiv.appendChild(rejectBtn);
+
+  } else if (item.kind === 'briefing') {
+    // target_id for briefing actions strips "briefing_" prefix
+    const briefId = String(item.id).replace(/^briefing_/i, '');
+    const ackBtn = document.createElement('button');
+    ackBtn.className = 'btn btn-primary';
+    ackBtn.textContent = 'Acknowledge';
+    ackBtn.addEventListener('click', () => doAction({ action: 'complete_briefing', target_id: briefId }));
+    actionsDiv.appendChild(ackBtn);
+  }
+
+  // Dismiss with reason — all kinds
+  const dismissBtn = document.createElement('button');
+  dismissBtn.className = 'btn';
+  dismissBtn.textContent = 'Dismiss with reason';
+  dismissBtn.addEventListener('click', () => {
+    // Swap button for an inline reason-picker inside the modal
+    const picker = document.createElement('div');
+    picker.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px';
+    const label = document.createElement('span');
+    label.style.cssText = 'color:var(--ink-faint,#8b7a72)';
+    label.textContent = 'Why?';
+    picker.appendChild(label);
+
+    const reasons = _dismissReasonsFor(item.kind);
+    reasons.forEach(r => {
+      const chip = document.createElement('button');
+      chip.className = 'btn';
+      chip.style.cssText = 'font-size:11px;padding:2px 8px';
+      chip.textContent = r;
+      chip.addEventListener('click', () => doAction({
+        action: 'dismiss_inbox_item', kind: item.kind, target_id: item.id, reason: r,
+      }));
+      picker.appendChild(chip);
+    });
+    const other = document.createElement('button');
+    other.className = 'btn';
+    other.style.cssText = 'font-size:11px;padding:2px 8px';
+    other.textContent = 'other…';
+    other.addEventListener('click', () => {
+      const txt = window.prompt('Dismiss reason?') || '';
+      if (txt.trim()) doAction({
+        action: 'dismiss_inbox_item', kind: item.kind, target_id: item.id, reason: txt.trim(),
+      });
+    });
+    picker.appendChild(other);
+    const cancel = document.createElement('button');
+    cancel.className = 'btn';
+    cancel.style.cssText = 'font-size:11px;padding:2px 8px;color:var(--ink-faint,#8b7a72)';
+    cancel.textContent = '×';
+    cancel.addEventListener('click', () => picker.replaceWith(dismissBtn));
+    picker.appendChild(cancel);
+    dismissBtn.replaceWith(picker);
+  });
+  actionsDiv.appendChild(dismissBtn);
+
+  // Open in chat — placeholder stub
+  const chatBtn = document.createElement('button');
+  chatBtn.className = 'btn';
+  chatBtn.textContent = 'Open in chat';
+  chatBtn.style.cssText = 'color:var(--ink-faint,#8b7a72)';
+  chatBtn.addEventListener('click', () => alert('Coming soon — chat routing not yet wired.'));
+  actionsDiv.appendChild(chatBtn);
+
+  box.appendChild(actionsDiv);
+
+  // Show modal
+  m.style.display = 'flex';
+  m.style.alignItems = 'flex-start';
+
+  // ESC to close
+  const onKey = (e) => { if (e.key === 'Escape') { closeInboxModal(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    UNIFIED INBOX TAB
    ══════════════════════════════════════════════════════════════════════════ */
 
@@ -3079,6 +3119,65 @@ const URGENCY_COLOR = {
   2: '#64748b',  // slate
   1: '#94a3b8',  // light
 };
+
+/* Per-kind dismiss-reason chips. Selected chip → preference_signals row →
+   grant_radar Haiku prompt next run, closing the triage-improvement loop. */
+const DISMISS_REASONS = {
+  grant: [
+    'not relevant',
+    'wet-lab focus',
+    'wrong career stage',
+    'PI eligibility',
+    'deadline too soon',
+    'too small',
+    'duplicate',
+  ],
+  hypothesis: [
+    'not novel',
+    'flawed logic',
+    'out of lab scope',
+    'too speculative',
+    'already tested',
+  ],
+  briefing: [
+    'not actionable',
+    'already handled',
+    'low priority',
+  ],
+  draft: [
+    'wrong angle',
+    'rewrite needed',
+    'not ready',
+  ],
+  prereg: [
+    'not testable',
+    'wrong DB',
+    'flawed test',
+  ],
+  ledger: [
+    'low quality',
+    'duplicate',
+    'not interesting',
+  ],
+  intention: [
+    'completed',
+    'no longer relevant',
+    'deferred',
+  ],
+  reviewer_invitation: [
+    'wrong domain',
+    'not now',
+  ],
+  analysis: [
+    'flawed method',
+    'low quality',
+    'duplicate',
+  ],
+};
+const DISMISS_REASONS_DEFAULT = ['not relevant', 'low priority', 'duplicate'];
+function _dismissReasonsFor(kind) {
+  return DISMISS_REASONS[kind] || DISMISS_REASONS_DEFAULT;
+}
 
 /* Active filter: null = All, else a kind string */
 let _inboxFilterKind = null;
@@ -3239,7 +3338,32 @@ function renderUnifiedInboxCards(data) {
     const btns = document.createElement('div');
     btns.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
 
-    if (item.link_url) {
+    // Three behaviours for the primary action button:
+    //   1. content_md present  → open detail modal
+    //   2. link_url starts '#' → switch to that tab in this SPA (no nav)
+    //   3. link_url starts http → open in new tab
+    //   else: no button shown
+    if (item.content_md) {
+      const expandBtn = document.createElement('button');
+      expandBtn.className = 'btn btn-primary';
+      expandBtn.style.cssText = 'font-size:12px';
+      expandBtn.textContent = item.link_text || 'Expand';
+      expandBtn.addEventListener('click', () => openInboxModal(item, card));
+      btns.appendChild(expandBtn);
+    } else if (item.link_url && item.link_url.startsWith('#')) {
+      // SPA tab switch — no navigation, just activate the right tab
+      const tabBtn = document.createElement('button');
+      tabBtn.className = 'btn btn-primary';
+      tabBtn.style.cssText = 'font-size:12px';
+      tabBtn.textContent = item.link_text || 'Open';
+      tabBtn.addEventListener('click', () => {
+        const tabName = item.link_url.slice(1);  // strip the '#'
+        const tabBtn = document.querySelector(`button.tab[data-tab="${tabName}"]`);
+        if (tabBtn) tabBtn.click();
+        else window.location.hash = item.link_url;  // fallback
+      });
+      btns.appendChild(tabBtn);
+    } else if (item.link_url && /^https?:\/\//i.test(item.link_url)) {
       const link = document.createElement('a');
       link.className = 'btn btn-primary';
       link.style.cssText = 'text-decoration:none;font-size:12px';
@@ -3250,11 +3374,58 @@ function renderUnifiedInboxCards(data) {
       btns.appendChild(link);
     }
 
+    // Dismiss button: click expands an inline reason picker.  The selected
+    // chip becomes the dismiss reason — these get fed into preference_signals
+    // and the next grant_radar Haiku prompt, so Tealc learns to triage better.
     const dismissBtn = document.createElement('button');
     dismissBtn.className = 'btn';
     dismissBtn.style.cssText = 'font-size:12px';
     dismissBtn.textContent = 'Dismiss';
-    dismissBtn.addEventListener('click', () => { card.remove(); });
+    dismissBtn.addEventListener('click', () => {
+      // Replace the dismiss button with a small reason-picker row in place.
+      const picker = document.createElement('div');
+      picker.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11px';
+      const why = document.createElement('span');
+      why.style.cssText = 'color:var(--ink-faint);margin-right:4px';
+      why.textContent = 'Why?';
+      picker.appendChild(why);
+
+      const reasons = _dismissReasonsFor(item.kind);
+      const submit = (reasonText) => {
+        inboxAction(card, {
+          action: 'dismiss_inbox_item',
+          kind: item.kind,
+          target_id: item.id,
+          reason: reasonText,
+        });
+      };
+      reasons.forEach(r => {
+        const chip = document.createElement('button');
+        chip.className = 'btn';
+        chip.style.cssText = 'font-size:11px;padding:2px 8px';
+        chip.textContent = r;
+        chip.addEventListener('click', () => submit(r));
+        picker.appendChild(chip);
+      });
+      const other = document.createElement('button');
+      other.className = 'btn';
+      other.style.cssText = 'font-size:11px;padding:2px 8px';
+      other.textContent = 'other…';
+      other.addEventListener('click', () => {
+        const txt = window.prompt('Why dismiss?') || '';
+        if (txt.trim()) submit(txt.trim());
+      });
+      picker.appendChild(other);
+      const cancel = document.createElement('button');
+      cancel.className = 'btn';
+      cancel.style.cssText = 'font-size:11px;padding:2px 8px;color:var(--ink-faint)';
+      cancel.textContent = '×';
+      cancel.title = 'cancel';
+      cancel.addEventListener('click', () => { picker.replaceWith(dismissBtn); });
+      picker.appendChild(cancel);
+
+      dismissBtn.replaceWith(picker);
+    });
     btns.appendChild(dismissBtn);
 
     card.appendChild(btns);
@@ -3313,7 +3484,7 @@ function renderReviewerCircleHeader(data) {
     banner.style.cssText = 'background:#fef9c3;border:1px solid #ca8a04;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px';
     banner.innerHTML = 'Reviewer emails not yet configured. ';
     const cfgLink = document.createElement('a');
-    const absPath = '/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive/00-Lab-Agent/data/reviewer_circle/reviewers.json';
+    const absPath = 'data/reviewer_circle/reviewers.json';
     cfgLink.href = 'file://' + absPath;
     cfgLink.textContent = 'Open reviewers.json';
     cfgLink.style.fontWeight = '600';
@@ -3469,7 +3640,7 @@ function initTabs() {
       if (panel) panel.classList.add('active');
 
       if (target === 'unified-inbox') loadUnifiedInbox();
-      if (target === 'inbox') loadInbox();
+      // 'inbox' tab removed — unified-inbox tab is the default
       if (target === 'control') loadControl();
       if (target === 'documents') loadDocuments();
       if (target === 'goals') loadGoals();

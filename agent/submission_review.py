@@ -18,6 +18,18 @@ from anthropic import Anthropic  # noqa: E402
 
 import agent.cost_tracking as cost_tracking  # noqa: E402
 
+# 4th + 5th personas — Tier 2 features (deterministic + LLM-judged)
+try:
+    from agent.personas.self_plagiarism import check_self_plagiarism as _check_sp  # noqa: E402
+    _self_plag_available = True
+except ImportError:
+    _self_plag_available = False
+try:
+    from agent.contradiction_radar import detect_contradictions as _detect_contradictions  # noqa: E402
+    _contradiction_radar_available = True
+except ImportError:
+    _contradiction_radar_available = False
+
 client = Anthropic()
 
 # ---------------------------------------------------------------------------
@@ -302,11 +314,39 @@ def pre_submission_review(
         consensus_msg.content[0].text.strip() if consensus_msg.content else ""
     )
 
+    # ------------------------------------------------------------------
+    # 4th persona — Self-Plagiarism Sentinel (deterministic, no LLM calls)
+    # ------------------------------------------------------------------
+    sp_result = {
+        "flags": [], "n_draft_sentences": 0, "n_flagged": 0,
+        "foundation_ready": False, "summary": "Self-plagiarism sentinel not available.",
+    }
+    if _self_plag_available:
+        try:
+            sp_result = _check_sp(doc_text)
+        except Exception as _sp_exc:
+            sp_result["summary"] = f"Self-plagiarism check error: {_sp_exc}"
+
+    # ------------------------------------------------------------------
+    # 5th persona — Contradiction Radar (LLM-judged via heath_claims graph)
+    # ------------------------------------------------------------------
+    contradiction_result = {
+        "contradictions": [], "n_claim_sentences": 0, "n_overlapping": 0,
+        "foundation_ready": False, "summary": "Contradiction radar not available.",
+    }
+    if _contradiction_radar_available:
+        try:
+            contradiction_result = _detect_contradictions(doc_text)
+        except Exception as _cr_exc:
+            contradiction_result["summary"] = f"Contradiction radar error: {_cr_exc}"
+
     return {
         "venue": venue,
         "personas_run": personas,
         "reviews": reviews,
         "consensus": consensus_text,
+        "self_plagiarism": sp_result,
+        "contradiction_radar": contradiction_result,
         "tokens_in_total": tokens_in_total,
         "tokens_out_total": tokens_out_total,
         "model": _OPUS_MODEL,

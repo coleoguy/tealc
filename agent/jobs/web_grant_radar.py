@@ -1,4 +1,4 @@
-"""Web-search-based grant discovery for Heath Blackmon.
+"""Web-search-based grant discovery for the researcher.
 
 Complements the API-based grant_radar (NIH RePORTER + NSF Award Search + RSS)
 by using Claude's web_search tool to discover the long tail: society awards,
@@ -36,7 +36,7 @@ log = logging.getLogger("tealc.web_grant_radar")
 
 SONNET_MODEL = "claude-sonnet-4-6"
 
-DISCOVERY_PROMPT_TEMPLATE = """You are a grant scout for Heath Blackmon, a tenured TAMU Biology PI. Your job: find smaller awards, fellowships, prizes, internal funding, society awards, and niche calls he would be a strong candidate for. NOT mega-grants like NSF DEB or NIH R01 — those are tracked separately.
+DISCOVERY_PROMPT_TEMPLATE = """You are a grant scout for the researcher, a tenured Biology PI. Your job: find smaller awards, fellowships, prizes, internal funding, society awards, and niche calls they would be a strong candidate for. NOT mega-grants like NSF DEB or NIH R01 — those are tracked separately.
 
 WHO HE IS:
 {heath_profile}

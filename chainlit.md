@@ -1,6 +1,6 @@
 # Tealc
 
-Personal AI postdoc for the Blackmon Lab at Texas A&M.
+Personal AI postdoc for the research lab.
 
 **Connected tools**
 
@@ -29,4 +29,4 @@ Conversation memory persists across sessions and machines via Google Drive.
 
 ---
 
-Part of the [Blackmon Lab](https://coleoguy.github.io) research system.
+Part of the lab's research system.

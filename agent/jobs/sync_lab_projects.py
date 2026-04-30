@@ -1,7 +1,7 @@
 """sync_lab_projects.py — mirror the shared-Drive "Projects" folder into the
 research_projects table.  The folder tree at
 
-    ~/Library/CloudStorage/GoogleDrive-*/Shared drives/Blackmon Lab/Projects
+    ~/Library/CloudStorage/GoogleDrive-*/Shared drives/Lab/Projects
 
 is the source of truth for active lab paper projects.  Each direct-child
 subfolder of Projects/ is one project.  Subfolders under `2024 abandoned?`
@@ -51,11 +51,11 @@ from agent.scheduler import DB_PATH  # noqa: E402
 
 _JOB_NAME = "sync_lab_projects"
 
-# Source of truth — the Blackmon Lab shared Drive, mounted via Google Drive
+# Source of truth — the lab shared Drive, mounted via Google Drive
 # for desktop.  This path is the authoritative list of paper projects.
-PROJECTS_ROOT = os.path.expanduser(
-    "~/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/"
-    "Shared drives/Blackmon Lab/Projects"
+PROJECTS_ROOT = os.environ.get(
+    "LAB_PROJECTS_ROOT",
+    os.path.expanduser("~/Library/CloudStorage/GoogleDrive/Shared drives/Lab/Projects"),
 )
 
 # Subfolder names that are NOT themselves projects — admin/template folders.

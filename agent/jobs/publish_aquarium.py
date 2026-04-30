@@ -1,6 +1,6 @@
 """Publish Tealc's heartbeat + recent-job activity to the public aquarium feed.
 
-The aquarium page (coleoguy.github.io/tealc.html) shows "Offline" if the JSON's
+The aquarium page (lab's GitHub Pages /tealc.html) shows "Offline" if the JSON's
 `last_updated` is older than 10 minutes. Chat-driven tool calls update it via
 _log_activity in app.py, but scheduled jobs do NOT — so when Heath isn't
 chatting the page flips to Offline even though the scheduler is doing plenty.
@@ -31,15 +31,22 @@ load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
 from agent.jobs import tracked  # noqa: E402
 from agent.scheduler import DB_PATH  # noqa: E402
 
-AQUARIUM_LOG = "/Users/blackmon/Desktop/GitHub/coleoguy.github.io/tealc_activity.json"
+AQUARIUM_LOG = os.environ.get(
+    "AQUARIUM_LOG_PATH",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages/tealc_activity.json"),
+)
 AQUARIUM_MAX_EVENTS = 50
 AQUARIUM_WORKER_URL = os.environ.get("AQUARIUM_WORKER_URL", "")
 AQUARIUM_WORKER_SECRET = os.environ.get("AQUARIUM_WORKER_SECRET", "")
 
 # Jobs we don't want reflected in the public feed (too noisy, too internal).
+# Public visitors should see substantive science work, not housekeeping pings.
 _SKIP_JOBS = {
     "heartbeat", "refresh_context", "watch_deadlines", "email_burst",
     "publish_aquarium", "aquarium_audit",
+    # Housekeeping that fires every few min — drowns out the interesting work.
+    "vip_email_watch",   # was "Watched priority inbox"
+    "executive",         # was "Reviewed priorities"
 }
 
 # Privacy-safe (type, description) labels per noteworthy job.
@@ -90,6 +97,34 @@ def _load_aquarium() -> dict:
         return {"last_updated": "", "recent_activity": []}
 
 
+def _coalesce_adjacent(events: list) -> list:
+    """Collapse consecutive events with identical (type, description) into a
+    single entry. Events are ordered newest-first, so the first of a run keeps
+    its time (which is already the newest) and the older duplicates are dropped.
+
+    This converts feeds like:
+        ["Watched priority inbox" 12:00, "Watched priority inbox" 11:50,
+         "Watched priority inbox" 11:40, "Reviewed paper" 11:30, ...]
+    into:
+        ["Watched priority inbox" 12:00, "Reviewed paper" 11:30, ...]
+
+    A web visitor sees one card per kind, with the time of the most recent
+    occurrence — not 20 stamps of the same description.
+    """
+    if not events:
+        return events
+    out = [dict(events[0])]
+    for e in events[1:]:
+        last = out[-1]
+        if (
+            e.get("type") == last.get("type")
+            and e.get("description") == last.get("description")
+        ):
+            continue  # adjacent duplicate — drop, keeping last's newer time
+        out.append(dict(e))
+    return out
+
+
 def _push_to_worker(payload_bytes: bytes) -> None:
     if not AQUARIUM_WORKER_URL or not AQUARIUM_WORKER_SECRET:
         return
@@ -113,6 +148,20 @@ def _push_to_worker(payload_bytes: bytes) -> None:
 def job() -> str:
     log = _load_aquarium()
     events = log.get("recent_activity", [])
+    # Drop events whose (type, description) matches a job in _SKIP_JOBS — this
+    # cleans up historical noise on the very next publish when a job is added
+    # to the skip list. New entries are filtered upstream by the SQL NOT IN.
+    _hidden = {
+        _JOB_LABELS[j] for j in _SKIP_JOBS if j in _JOB_LABELS
+    }
+    if _hidden:
+        events = [
+            e for e in events
+            if (e.get("type"), e.get("description")) not in _hidden
+        ]
+    # Then collapse any adjacent duplicates that may exist (especially after
+    # the filter above re-aligns rows).
+    events = _coalesce_adjacent(events)
     now = datetime.now(timezone.utc)
     now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -145,11 +194,21 @@ def job() -> str:
                 job_name, _finished = row
                 label = _JOB_LABELS.get(job_name)
                 if label is not None:
-                    events.insert(0, {
-                        "time": now_iso, "type": label[0], "description": label[1],
-                    })
-                    events = events[:AQUARIUM_MAX_EVENTS]
-                    added_event_label = label[1]
+                    # Same as the most recent event? Just bump its time.
+                    # Otherwise insert a new row at the top.
+                    if (
+                        events
+                        and events[0].get("type") == label[0]
+                        and events[0].get("description") == label[1]
+                    ):
+                        events[0]["time"] = now_iso
+                        added_event_label = f"(updated time on {label[1]})"
+                    else:
+                        events.insert(0, {
+                            "time": now_iso, "type": label[0], "description": label[1],
+                        })
+                        events = events[:AQUARIUM_MAX_EVENTS]
+                        added_event_label = label[1]
     except Exception:
         pass  # never block the heartbeat write on a DB/query issue
 

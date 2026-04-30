@@ -128,7 +128,7 @@ def _example_prompt(name: str, desc: str) -> str:
     if name in _CANNED_EXAMPLES:
         return _CANNED_EXAMPLES[name]
     desc_lower = (desc or "").lower()
-    if any(kw in desc_lower for kw in ("heath", "nas", "grant", "blackmon", "student")):
+    if any(kw in desc_lower for kw in ("researcher", "nas", "grant", "student")):
         return f"Try: 'show me {name.replace('_', ' ')} for Heath'"
     return f"Try: 'show me {name} output'"
 

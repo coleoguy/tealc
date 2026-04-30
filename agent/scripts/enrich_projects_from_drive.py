@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """enrich_projects_from_drive.py — One-shot enrichment migration.
 
-For each research_project in SQLite, fuzzy-match against the 59 Blackmon Lab
+For each research_project in SQLite, fuzzy-match against the lab's
 Drive project folders.  On a match:
   • Set data_dir = folder ID
   • Find most-recently-modified .gdoc/.docx → set linked_artifact_id
@@ -44,7 +44,7 @@ import anthropic  # noqa: E402 (must come after dotenv load)
 
 DB_PATH = os.path.join(_ROOT, "data", "agent.db")
 
-# Blackmon Lab shared drive / Projects folder
+# Lab shared drive / Projects folder
 LAB_DRIVE = "0AKI1NlwWUostUk9PVA"
 PROJECTS_FOLDER = "1TkR4etnfq0WnVjx44iN9rrUHeZN4oDLS"
 
@@ -273,7 +273,7 @@ def _get_client():
 
 
 EXTRACT_SYSTEM = (
-    "From the project name and the artifact text below, extract for Heath Blackmon's "
+    "From the project name and the artifact text below, extract for the "
     "research project: "
     "(1) current_hypothesis: 2-3 sentences stating the testable claim or the project's "
     "central question. "

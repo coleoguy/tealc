@@ -5,6 +5,8 @@ public_event() returns a dict with ONLY {time, type, description}. It never
 includes raw tool_input or tool_output strings unless the tool is in
 PUBLIC_RESEARCH_TOOLS *and* the input passes the keyword denylist.
 """
+from __future__ import annotations
+
 import re
 from typing import Any
 
@@ -167,6 +169,13 @@ GENERIC_LABELS = {
     "zenodo_create_deposit":   ("drive", "Registered a Zenodo dataset"),
     "zenodo_upload_file":      ("drive", "Uploaded a file to Zenodo"),
     "zenodo_publish_deposit":  ("drive", "Published a Zenodo deposit"),
+    # Open Lab Notebook publish controls
+    "request_publish_artifact": ("tool", "Queued an artifact for the public notebook"),
+    "unpublish_artifact":        ("tool", "Redacted an artifact from the public notebook"),
+    "list_publish_queue":        ("tool", "Reviewed the publish queue"),
+    # CrossRef + subagent telemetry
+    "resolve_citation":          ("search", "Resolved a citation to DOI"),
+    "list_subagent_runs":        ("search", "Listed subagent run history"),
     # Tier 4 corpus helpers (PUBLIC)
     "epmc_cache_full_text":           ("read",   "Cached a full-text article"),
     "s2_search_papers":               ("search", "Searched Semantic Scholar"),
@@ -180,6 +189,11 @@ GENERIC_LABELS = {
     # Reviewer Circle
     "list_reviewer_invitations": ("tool", "Reviewed reviewer invitations"),
     "get_reviewer_correlation":  ("tool", "Reviewed reviewer correlations"),
+    # Tier 2 — own-record RAG
+    "ask_my_record":             ("read", "Searched my own published record"),
+    # Subagent spawning — fan-out research
+    "spawn_subagent":            ("tool", "Dispatched a research subagent"),
+    "spawn_parallel_subagents":  ("tool", "Dispatched parallel research subagents"),
 }
 
 # Words/patterns that, if present in a research query, force vagueness.
@@ -209,6 +223,82 @@ except FileNotFoundError:
 DENY_REGEX = re.compile("|".join(DENY_PATTERNS + [
     rf"\b{re.escape(name)}\b" for name in LAB_PEOPLE
 ]), re.IGNORECASE) if (DENY_PATTERNS or LAB_PEOPLE) else None
+
+
+# ---------------------------------------------------------------------------
+# Per-kind publish rules for the Open Lab Notebook
+# ---------------------------------------------------------------------------
+
+# Kinds that are never publishable regardless of content.
+_KIND_ALWAYS_BLOCK = frozenset({
+    "grant_draft",          # leaks grant strategy
+    "manuscript_section",   # unpublished results
+})
+
+# Kinds that default-block unless Heath explicitly approves (decided_by='heath').
+_KIND_DEFAULT_BLOCK = frozenset({
+    "exploratory_analysis", # may contain unpublished data directions
+    "nas_case_packet",      # internal strategy
+})
+
+# Kinds that are publishable after DENY_REGEX passes.
+_KIND_ALLOW = frozenset({
+    "hypothesis",
+    "analysis",
+    "literature_synthesis",
+    "literature_note",
+    "undercited_papers",
+    "replication_snapshot",
+    "weekly_review",
+    "paper_of_the_day",
+})
+
+
+def classify_artifact(
+    kind: str,
+    content_md: str,
+    project_id: str | None = None,
+    decided_by: str = "auto",
+) -> dict:
+    """Classify whether an artifact is safe to publish on the public notebook.
+
+    Returns::
+        {
+          "ok": bool,
+          "kind": str,
+          "blockers": list[str],   # human-readable reasons for blocking
+        }
+
+    Rules (applied in order, first match wins):
+    1. Always-block kinds (grant_draft, manuscript_section).
+    2. Drafts (kind contains 'draft') block unless decided_by == 'heath'.
+    3. Default-block kinds block unless decided_by == 'heath'.
+    4. DENY_REGEX scan of content_md — any hit is a blocker.
+    5. If no blockers remain, ok=True.
+    """
+    blockers: list[str] = []
+
+    # Rule 1 — always-block kinds
+    if kind in _KIND_ALWAYS_BLOCK:
+        blockers.append(f"kind '{kind}' is never publishable (strategy leak)")
+        return {"ok": False, "kind": kind, "blockers": blockers}
+
+    # Rule 2 — any 'draft' kind blocks unless Heath explicitly approved
+    if "draft" in kind and decided_by != "heath":
+        blockers.append(f"kind '{kind}' contains 'draft' — requires explicit Heath approval")
+
+    # Rule 3 — default-block kinds
+    if kind in _KIND_DEFAULT_BLOCK and decided_by != "heath":
+        blockers.append(f"kind '{kind}' is blocked by default — requires explicit Heath approval")
+
+    # Rule 4 — content denylist scan
+    if DENY_REGEX and content_md and DENY_REGEX.search(content_md):
+        # Identify the first matching pattern for the blocker message
+        match = DENY_REGEX.search(content_md)
+        snippet = match.group(0) if match else "unknown"
+        blockers.append(f"content matches DENY_REGEX (first match: '{snippet}') — personal or strategic info detected")
+
+    return {"ok": len(blockers) == 0, "kind": kind, "blockers": blockers}
 
 
 def _query_is_public_safe(q: str) -> bool:

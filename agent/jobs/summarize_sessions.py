@@ -197,7 +197,7 @@ def _summarize_with_sonnet(messages: list[dict], roster: list[str]) -> dict | No
     )
 
     system = (
-        "You write a 3-5 paragraph summary of one Tealc chat session for Heath Blackmon's "
+        "You write a 3-5 paragraph summary of one Tealc chat session for the researcher's "
         "long-term memory. Capture: what was discussed, what decisions were made, what Tealc "
         "was asked to do, what's pending. Be concrete and specific — names, papers, deadlines. "
         "Output JSON: {\"summary_md\": \"<3-5 paragraphs>\", \"topics\": \"<comma-separated short tags>\", "

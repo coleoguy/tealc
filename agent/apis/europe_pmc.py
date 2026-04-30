@@ -1,10 +1,11 @@
-"""Europe PMC full-text client for Tealc (Heath Blackmon lab).
+"""Europe PMC full-text client for Tealc.
 
 Exports: search_full_text, fetch_full_text_xml, extract_sections,
          fetch_and_extract, bulk_fetch, cache_full_text
 """
 from __future__ import annotations
 
+import os
 import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -15,8 +16,9 @@ import requests
 
 _BASE_SEARCH = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 _BASE_FT = "https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML"
-_HEADERS = {"User-Agent": "Tealc/1.0 (blackmon@tamu.edu)"}
-_EMAIL = "blackmon@tamu.edu"
+_RESEARCHER_EMAIL = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
+_HEADERS = {"User-Agent": f"Tealc/1.0 ({_RESEARCHER_EMAIL})"}
+_EMAIL = _RESEARCHER_EMAIL
 _RATE_SLEEP = 0.1
 _TIMEOUT = 2
 _RETRY_DELAYS = [2, 4]

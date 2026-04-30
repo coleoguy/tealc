@@ -8,12 +8,14 @@ Free, CC0, no auth required. Base: https://api.gbif.org/v1/
 from __future__ import annotations
 
 import math
+import os
 import time
 
 import requests
 
+_RESEARCHER_EMAIL = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
 _BASE = "https://api.gbif.org/v1"
-_HEADERS = {"User-Agent": "Tealc/1.0 (blackmon@tamu.edu)"}
+_HEADERS = {"User-Agent": f"Tealc/1.0 ({_RESEARCHER_EMAIL})"}
 _TIMEOUT = 60  # facet/aggregation queries can be slow
 _GBIF_MAX = 300  # GBIF hard per-request cap
 

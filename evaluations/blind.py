@@ -164,7 +164,7 @@ def blind_entry(
 
     # 8. Replace lab-people names with stable pseudonyms
     lab_people = load_lab_people()
-    # Sort longest first so "Andres Barboza Pereira" is caught before "Andres"
+    # Sort longest first so full names are caught before first names
     for name in sorted(lab_people, key=len, reverse=True):
         if name in content:
             if name not in pseudonym_map:
@@ -252,12 +252,12 @@ def _sanitize_hint(hint: str) -> str:
 def _run_sanity_check() -> None:
     """Assert that sensitive tokens in a synthetic text are properly redacted."""
     SAMPLE = (
-        "The analysis was run on /Users/blackmon/data/project_xyz/results.csv "
+        "The analysis was run on /Users/labuser/data/project_xyz/results.csv "
         "under grant R01-HG012345 funded by NHGRI. "
-        "Heath Blackmon at Texas A&M wrote this. "
-        "Contact him at blackmon@tamu.edu or hblackmon@gmail.com. "
+        "Researcher Name at State University wrote this. "
+        "Contact them at researcher@example.org or researcher@gmail.com. "
         "The Tealc system used claude-opus-4-5 for the critic pass. "
-        "Sean Bush contributed the phylogenetic tree. "
+        "Lab Collaborator contributed the phylogenetic tree. "
         "project_id = proj_42"
     )
     entry = {
@@ -278,7 +278,7 @@ def _run_sanity_check() -> None:
         "claude-opus",
         "Texas A&M",
     ]
-    # Sean Bush would be caught by lab_people.json if present; skip if file absent
+    # Lab Collaborator would be caught by lab_people.json if present; skip if file absent
     failures = [tok for tok in forbidden if tok.lower() in text.lower()]
     if failures:
         raise AssertionError(

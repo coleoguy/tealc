@@ -6,6 +6,7 @@ NSF Awards:   https://api.nsf.gov/services/v1/awards.json    (GET,  no auth)
 
 from __future__ import annotations
 
+import os
 import time
 import logging
 from typing import Any
@@ -14,8 +15,9 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+_RESEARCHER_EMAIL = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
 _SESSION = requests.Session()
-_SESSION.headers.update({"User-Agent": "Tealc/1.0 (blackmon@tamu.edu)"})
+_SESSION.headers.update({"User-Agent": f"Tealc/1.0 ({_RESEARCHER_EMAIL})"})
 _TIMEOUT = 20
 
 _NIH_SEARCH   = "https://api.reporter.nih.gov/v2/projects/search"

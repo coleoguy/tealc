@@ -63,7 +63,7 @@ _KNOWN_SHEETS_PATH = os.path.join(_PROJECT_ROOT, "data", "known_sheets.json")
 # Privacy-safe deny patterns (mirrors agent/privacy.py DENY_PATTERNS subset).
 # These are stripped from public prereg blocks at the paragraph level.
 _PRIV_DENY = re.compile(
-    r"(/Users/\S+|/Volumes/\S+|blackmon@|@tamu\.edu|@gmail\.com|\bblackmon\b)",
+    r"(/Users/\S+|/Volumes/\S+|researcher@example|@tamu\.edu|@gmail\.com)",
     re.IGNORECASE,
 )
 
@@ -89,7 +89,7 @@ _PREREG_SCHEMA = """\
 # ---------------------------------------------------------------------------
 
 _PREREG_SYSTEM = f"""\
-You are Heath Blackmon's AI postdoc. Your job is to convert a hypothesis proposal \
+You are the researcher's AI postdoc. Your job is to convert a hypothesis proposal \
 into a rigorous, public preregistration block.
 
 The block must be:
@@ -129,7 +129,7 @@ magnitude=<float|NA>
 6. Output ONLY valid JSON: {"libraries": "pkg1,pkg2", "code": "<r code>"}"""
 
 _RATIONALE_SYSTEM = """\
-You are Heath Blackmon's AI postdoc writing a 3-4 paragraph adjudication rationale \
+You are the researcher's AI postdoc writing a 3-4 paragraph adjudication rationale \
 for a public preregistration record. The verdict is already determined (you did NOT \
 decide it — it was computed deterministically from p-value and direction). Your job is \
 to put the statistical result in scientific context:

@@ -6,9 +6,10 @@
 
 set -euo pipefail
 
-PLIST_SRC="/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive/00-Lab-Agent/scripts/com.blackmon.tealc-scheduler.plist"
-PLIST_DST="$HOME/Library/LaunchAgents/com.blackmon.tealc-scheduler.plist"
-LABEL="com.blackmon.tealc-scheduler"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLIST_SRC="${SCRIPT_DIR}/com.tealc-scheduler.plist"
+PLIST_DST="$HOME/Library/LaunchAgents/com.tealc-scheduler.plist"
+LABEL="com.tealc-scheduler"
 UID_VAL="$(id -u)"
 
 echo "==> Installing Tealc LaunchAgent..."
@@ -32,4 +33,4 @@ echo "Check status:"
 echo "    launchctl print gui/${UID_VAL}/${LABEL}"
 echo ""
 echo "Or use the project's own health check:"
-echo "    bash \"/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive/00-Lab-Agent/scripts/scheduler_status.sh\""
+echo "    bash \"${SCRIPT_DIR}/scheduler_status.sh\""

@@ -2,7 +2,7 @@
 
 Reads what Tealc actually did over the past week (executive decisions, email triage,
 briefings, intentions, job runs, grants) and writes a Sonnet-authored critique briefing
-for Heath's Monday morning.  This is the learning loop — Heath uses it to tighten
+for the researcher's Monday morning.  This is the learning loop — the researcher uses it to tighten
 behavioral rules in agent/graph.py.
 
 Run manually to test:
@@ -35,10 +35,10 @@ NOTIFICATION_RATE_PATH = os.path.join(_DATA, "notification_rate.json")
 # System prompt for Sonnet
 # ---------------------------------------------------------------------------
 REVIEW_SYSTEM_PROMPT = """\
-You write Heath Blackmon's weekly Tealc self-review. Heath has the goal of NAS membership \
+You write the researcher's weekly Tealc self-review. the researcher has the goal of NAS membership \
 and is drowning in responsibilities. Tealc just spent a week running scheduled jobs, \
 classifying email, deciding what to do (in advisor mode for now). Your output is a \
-briefing Heath reads Monday morning.
+briefing the researcher reads Monday morning.
 
 Output structure (use these exact headers):
 ## What Tealc did this week
@@ -50,13 +50,13 @@ Output structure (use these exact headers):
 truly urgent briefings; the rule should require unsurfaced_count >= 3 OR an urgency=critical \
 briefing before considering this action.")
 ## Concrete rule changes I recommend
-(Bullet list of specific edits to `agent/graph.py` SYSTEM_PROMPT — actual sentences Heath \
+(Bullet list of specific edits to `agent/graph.py` SYSTEM_PROMPT — actual sentences the researcher \
 could paste in)
 ## Numbers
 (Compact table: jobs run / errors, emails triaged by class, briefings created/surfaced, \
 intentions added/completed/abandoned)
-## Open questions for Heath
-(Things only Heath can answer — e.g., "Do you want me to start auto-sending email drafts \
+## Open questions for the researcher
+(Things only the researcher can answer — e.g., "Do you want me to start auto-sending email drafts \
 after you've approved 5 in a row?")
 
 Be terse. Specific over vague. Don't pad. 600-800 words total."""
@@ -315,7 +315,7 @@ def _notify_heath_calls(week_start: str) -> str:
 
 @tracked("weekly_review")
 def job() -> str:
-    """Read the past week of Tealc activity and write a critique briefing for Heath."""
+    """Read the past week of Tealc activity and write a critique briefing for the researcher."""
     now_utc = datetime.now(timezone.utc)
     week_start = now_utc - timedelta(days=7)
     week_start_iso = week_start.isoformat()

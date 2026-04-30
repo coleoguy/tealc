@@ -2,7 +2,7 @@
 
 **Question:** Given N births per generation and N_e individuals contributing to the next generation, in a CONSTANT environment, what is the maximum amount of heritable information a population can maintain with fidelity?
 
-**Date:** 2026-04-25 | **For:** Heath Blackmon
+**Date:** 2026-04-25 | **For:** Researcher
 **Status:** New theoretical project added 2026-04-25. This brief is a survey of whether the question has been answered.
 
 ---

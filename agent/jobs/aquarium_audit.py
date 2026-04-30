@@ -22,7 +22,10 @@ load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
 from agent.jobs import tracked  # noqa: E402
 from agent.scheduler import DB_PATH  # noqa: E402
 
-_AQUARIUM_PATH = "/Users/blackmon/Desktop/GitHub/coleoguy.github.io/tealc_activity.json"
+_AQUARIUM_PATH = os.environ.get(
+    "AQUARIUM_LOG_PATH",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages/tealc_activity.json"),
+)
 _DATA = os.path.normpath(os.path.join(_PROJECT_ROOT, "data"))
 
 # Common short words to skip when matching grant title keywords

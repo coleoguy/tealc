@@ -1,16 +1,15 @@
-"""Run this once to authorize Alex to access Gmail, Calendar, Drive, Docs, and Sheets."""
+"""Run this once to authorize Tealc to access Gmail, Calendar, Drive, Docs, and Sheets."""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from google_auth_oauthlib.flow import InstalledAppFlow
-from google.oauth2.credentials import Credentials
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
-    "https://www.googleapis.com/auth/calendar.readonly",
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/documents",
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
 ]
 
 CREDS_PATH = os.path.join(os.path.dirname(__file__), "google_credentials.json")
@@ -29,4 +28,4 @@ with open(TOKEN_PATH, "w") as f:
     f.write(creds.to_json())
 
 print(f"\nSuccess! Token saved to {TOKEN_PATH}")
-print("You can now run ./run.sh — Alex has full Google access.")
+print("Tealc now has full Gmail, Calendar, Drive, Docs, and Sheets access.")

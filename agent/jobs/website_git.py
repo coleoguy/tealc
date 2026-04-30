@@ -1,4 +1,4 @@
-"""Git operations wrapper for Tealc's writes to the coleoguy.github.io repo.
+"""Git operations wrapper for Tealc's writes to the lab's GitHub Pages repo.
 
 Safety boundaries enforced by this module (per HANDOFF / plan):
   1. Path allowlist. Tealc may only stage files under /knowledge/. Any attempt
@@ -23,7 +23,7 @@ Public API:
 
 Environment:
     TEALC_WEBSITE_REPO — override the default repo path (default:
-    /Users/blackmon/Desktop/GitHub/coleoguy.github.io)
+    ~/Desktop/GitHub/lab-pages)
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Optional
 
-_DEFAULT_REPO = "/Users/blackmon/Desktop/GitHub/coleoguy.github.io"
+_DEFAULT_REPO = os.path.expanduser("~/Desktop/GitHub/lab-pages")
 _TEALC_OWNED_SUBDIR = "knowledge"  # Tealc may only write under this subdir
 _TEALC_COMMIT_PREFIX = "[tealc]"
 

@@ -148,7 +148,7 @@ def job() -> str:
         project_blocks.append(block)
 
     user_msg = (
-        f"Heath Blackmon's lab has {len(projects)} active research projects "
+        f"The lab has {len(projects)} active research projects "
         "with current hypotheses. Identify 1–3 non-obvious cross-project connections.\n\n"
         + "\n\n".join(project_blocks)
     )

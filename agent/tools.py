@@ -387,8 +387,14 @@ def get_datetime() -> str:
     return datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
 
 
-LAB_WEBSITE_PATH = "/Users/blackmon/Desktop/GitHub/coleoguy.github.io/llms-full.txt"
-DRIVE_ROOT = "/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive"
+LAB_WEBSITE_PATH = os.environ.get(
+    "LAB_WEBSITE_LLMS_PATH",
+    str(os.path.expanduser("~/Desktop/GitHub/lab-pages/llms-full.txt")),
+)
+DRIVE_ROOT = os.environ.get(
+    "DRIVE_ROOT",
+    str(os.path.expanduser("~/Library/CloudStorage/GoogleDrive/My Drive")),
+)
 
 
 @tool
@@ -440,9 +446,9 @@ def read_local_file(path: str, max_chars: int = 25000) -> str:
 
 
 @tool
-def track_citations(author_name: str = "Heath Blackmon", max_results: int = 10) -> str:
-    """Check who is citing Heath's work recently using OpenAlex. Returns papers that
-    cite his work, useful for finding collaborators and tracking research impact."""
+def track_citations(author_name: str = os.environ.get("RESEARCHER_FULL_NAME", "Researcher Name"), max_results: int = 10) -> str:
+    """Check who is citing the researcher's work recently using OpenAlex. Returns papers that
+    cite their work, useful for finding collaborators and tracking research impact."""
     try:
         # Find author ID
         resp = requests.get(
@@ -715,8 +721,9 @@ def _sender_is_protected(from_header: str, vip: set[str],
     domain = domain.lower().strip()
     if domain.endswith(_PROTECTED_TLDS):
         return True, f"protected domain ({domain})"
-    if "tamu.edu" in domain or "tamu.edu" == domain:
-        return True, "TAMU domain"
+    _inst_domain = os.environ.get("RESEARCHER_INSTITUTION_DOMAIN", "")
+    if _inst_domain and (_inst_domain in domain or _inst_domain == domain):
+        return True, "institution domain"
     return False, ""
 
 
@@ -761,7 +768,7 @@ def find_trash_candidates(days_back: int = 7, max_candidates: int = 25,
     """Find recent Gmail messages that look like junk and are safe to trash.
 
     Applies all FOUR of Heath's auto-trash rules (all must be true):
-      1. Sender is not a protected domain (.edu / .gov / tamu.edu), not a
+      1. Sender is not a protected domain (.edu / .gov / institution domain), not a
          known collaborator, not a VIP, not a lab member
       2. Subject/sender matches a junk pattern (List-Unsubscribe header,
          Precedence: bulk, or regex on subject / from)
@@ -1184,7 +1191,7 @@ def ingest_paper_to_wiki(
     dry_run: bool = True,
     force: bool = False,
 ) -> str:
-    """Ingest one paper into the lab wiki (/knowledge/ on coleoguy.github.io).
+    """Ingest one paper into the lab wiki (/knowledge/ on the lab's GitHub Pages site).
 
     source_type must be one of:
       "drive"  — source_value is a Google Drive file ID (use list_pdfs_in_drive_folder
@@ -1215,7 +1222,7 @@ def ingest_paper_to_wiki(
       ingest_paper_to_wiki(source_type="doi", source_value="10.1093/sysbio/syy031")
       ingest_paper_to_wiki(source_type="drive", source_value="1Abc...XYZ", dry_run=False)
       ingest_paper_to_wiki(source_type="local",
-                           source_value="/Users/blackmon/Downloads/paper.pdf",
+                           source_value="/path/to/Downloads/paper.pdf",
                            source_doi="10.1111/evo.12345")
     """
     try:
@@ -1346,7 +1353,7 @@ def send_ntfy_to_heath(
     if not topic or "PASTE" in topic or "PLACEHOLDER" in topic:
         return (
             "skipped: NTFY_TOPIC not set in .env. Pick a random topic name "
-            "(e.g. tealc-blackmon-<random hex>), add it to .env, and "
+            "(e.g. tealc-<random hex>), add it to .env, and "
             "subscribe to that topic in the ntfy app on your phone."
         )
 
@@ -1519,8 +1526,9 @@ def read_wiki_handoff() -> str:
         return f"Error reading wiki handoff: {type(e).__name__}: {e}"
 
 
-_WIKI_TOPICS_DIR = os.path.expanduser(
-    "~/Desktop/GitHub/coleoguy.github.io/knowledge/topics"
+_WIKI_TOPICS_DIR = os.environ.get(
+    "WIKI_TOPICS_DIR",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages/knowledge/topics"),
 )
 
 
@@ -1544,8 +1552,8 @@ def _parse_wiki_frontmatter(text: str) -> dict:
 def list_wiki_topics() -> str:
     """List every lab-wiki topic page with its title and category.
 
-    The wiki at ~/Desktop/GitHub/coleoguy.github.io/knowledge/topics/ is Heath's
-    structured claim graph — each topic page aggregates findings from his papers
+    The wiki at the lab's GitHub Pages /knowledge/topics/ is the researcher's
+    structured claim graph — each topic page aggregates findings from their papers
     (and related literature) with anchored cross-links to specific results.
 
     ALWAYS call this before proposing a hypothesis so you can identify which
@@ -1684,6 +1692,177 @@ def known_data_resources_summary() -> str:
                     lines.append(f"  - `{key}` (google_sheet): {sid}  — {notes}")
             # kind='unknown' is intentionally omitted — do not list unresolved resources
     return "\n".join(lines)
+
+
+@tool
+def request_publish_artifact(ledger_id: int, reason: str = "") -> str:
+    """Queue a private ledger artifact for the public Open Lab Notebook.
+
+    Runs the privacy classifier first; rejects with blockers if unsafe.
+    Approved artifacts go into a 24-hour embargo before publication.
+    """
+    from agent.ledger import request_publish  # noqa: PLC0415
+    try:
+        result = request_publish(ledger_id, reason=reason, decided_by="heath")
+    except Exception as exc:
+        return f"Error: {exc}"
+    if result.get("ok"):
+        return f"Artifact {ledger_id} queued for publication. Embargo until: {result.get('embargo_until')}"
+    return f"Cannot publish artifact {ledger_id}: {'; '.join(result.get('blockers', []))}"
+
+
+@tool
+def unpublish_artifact(ledger_id: int, reason: str) -> str:
+    """Redact a previously-published Open Lab Notebook entry.
+
+    The static page at the original URL is overwritten with a "redacted by author"
+    placeholder; the URL stays stable for any external referrers.
+    """
+    from agent.ledger import unpublish_artifact as _unpub  # noqa: PLC0415
+    try:
+        result = _unpub(ledger_id, reason=reason)
+    except Exception as exc:
+        return f"Error: {exc}"
+    if result.get("ok"):
+        return f"Artifact {ledger_id} marked redacted. Static page will be overwritten on next publisher tick."
+    return f"Error: {result.get('error', 'unknown')}"
+
+
+@tool
+def list_publish_queue() -> str:
+    """List output_ledger artifacts currently queued or under embargo for the
+    public Open Lab Notebook."""
+    import sqlite3 as _s, json as _json  # noqa: PLC0415
+    try:
+        from agent.scheduler import DB_PATH  # noqa: PLC0415
+    except ImportError:
+        return "scheduler import failed"
+    conn = _s.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT id, kind, publish_state, embargo_until, created_at "
+        "FROM output_ledger WHERE publish_state IN ('queued','embargo') "
+        "ORDER BY created_at DESC LIMIT 50"
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return "Publish queue is empty."
+    return "\n".join(
+        f"id={r[0]} kind={r[1]} state={r[2]} embargo_until={r[3]} created={r[4]}"
+        for r in rows
+    )
+
+
+@tool
+def resolve_citation(citation: str) -> str:
+    """Resolve a free-text bibliographic citation string to a DOI via CrossRef."""
+    from agent.apis.crossref import resolve_citation_to_doi  # noqa: PLC0415
+    r = resolve_citation_to_doi(citation)
+    if not r.get("doi"):
+        return f"No confident match (score: {r.get('score', 0):.1f})"
+    return f"DOI: {r['doi']}\nTitle: {r.get('title', '')[:120]}\nScore: {r.get('score', 0):.1f}"
+
+
+@tool
+def list_subagent_runs(limit: int = 20) -> str:
+    """List recent spawn_subagent / spawn_parallel_subagents runs with cost,
+    runtime, model, and task summary."""
+    import sqlite3 as _s  # noqa: PLC0415
+    try:
+        from agent.scheduler import DB_PATH  # noqa: PLC0415
+    except ImportError:
+        return "scheduler import failed"
+    conn = _s.connect(DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT started_at, finished_at, model, n_steps, cost_usd, status, task "
+            "FROM subagent_runs ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    except Exception as exc:
+        conn.close()
+        return f"Error: {exc}"
+    conn.close()
+    if not rows:
+        return "No subagent runs recorded yet."
+    out = ["started_at | model | steps | cost_usd | status | task"]
+    for r in rows:
+        out.append(f"{(r[0] or '')[:19]} | {r[2]} | {r[3]} | ${(r[4] or 0):.6f} | {r[5]} | {(r[6] or '')[:60]}")
+    return "\n".join(out)
+
+
+@tool
+def spawn_subagent(task: str, max_steps: int = 8, model: str = "sonnet") -> str:
+    """Spawn a focused sub-Claude-agent to handle a research task in isolation.
+
+    The subagent runs its own tool-use loop with a curated subset of READ-ONLY
+    tools (web search, literature search, full-text fetchers, taxonomy/phylogeny
+    APIs, ask_my_record). It returns a concise final answer.
+
+    Use when:
+      - The task needs multi-step research that would saturate this conversation
+      - You want a focused subset of tools without exposing all of Tealc's tools
+      - You want a "deep dive" without committing the main thread to it
+
+    `model`: 'sonnet' (default), 'opus', or 'haiku'.
+    `max_steps`: cap on tool-use iterations (default 8).
+
+    The subagent CANNOT write to any external surface (no Drive, no email, no
+    calendar) and CANNOT spawn its own subagents.
+    """
+    from agent.subagents import run_subagent  # noqa: PLC0415
+    model_id = {
+        "sonnet": "claude-sonnet-4-6",
+        "opus": "claude-opus-4-7",
+        "haiku": "claude-haiku-4-5-20251001",
+    }.get(model.lower(), model)
+    return run_subagent(task, model=model_id, max_steps=max_steps)
+
+
+@tool
+def spawn_parallel_subagents(tasks_json: str, max_steps: int = 6, model: str = "sonnet") -> str:
+    """Spawn N focused sub-Claude-agents in PARALLEL. Returns aggregated results.
+
+    `tasks_json`: a JSON array of task strings. E.g., '["task 1", "task 2", "task 3"]'.
+    Up to 4 subagents run concurrently (rate-limit guard).
+
+    Each subagent gets the same READ-ONLY tool subset as `spawn_subagent`.
+    Cost is roughly N × per-subagent cost. Typical: ~$0.10 per Sonnet subagent.
+
+    Use when investigating several independent angles of a question at once
+    (e.g., "find current deadlines at Schmidt, NSF AI Institutes, ARIA").
+    """
+    import json as _json
+    from agent.subagents import run_parallel_subagents  # noqa: PLC0415
+    try:
+        tasks = _json.loads(tasks_json)
+    except _json.JSONDecodeError as e:
+        return f"tasks_json must be a JSON array of strings: {e}"
+    if not isinstance(tasks, list) or not all(isinstance(t, str) for t in tasks):
+        return "tasks_json must be a JSON array of strings"
+    if len(tasks) > 8:
+        return f"Too many tasks ({len(tasks)}); cap is 8 to limit cost. Submit in batches."
+    model_id = {
+        "sonnet": "claude-sonnet-4-6",
+        "opus": "claude-opus-4-7",
+        "haiku": "claude-haiku-4-5-20251001",
+    }.get(model.lower(), model)
+    results = run_parallel_subagents(tasks, model=model_id, max_steps=max_steps)
+    out = []
+    for i, (task, ans) in enumerate(zip(tasks, results), start=1):
+        out.append(f"## Subagent {i}: {task[:120]}\n\n{ans}")
+    return "\n\n---\n\n".join(out)
+
+
+@tool
+def ask_my_record(question: str) -> str:
+    """Answer a question using only Heath's own 63 published papers.
+
+    Semantic retrieval over sentence embeddings of his corpus, then Sonnet
+    synthesizes a 200-word answer with inline (Paper N, Year) citations.
+    Returns "foundation not ready" if the corpus index hasn't been built yet.
+    """
+    from agent.ask_my_record import ask_my_record as _ask  # noqa: PLC0415
+    return _ask(question)
 
 
 @tool
@@ -1827,7 +2006,7 @@ def read_docx_with_comments(path: str) -> str:
 def notify_heath(level: str, title: str, body: str) -> str:
     """Push a notification to Heath.
     level: 'info' (log only), 'warn' (desktop notification banner),
-    'critical' (desktop banner + email to blackmon@tamu.edu).
+    'critical' (desktop banner + email to researcher@example.org).
     Reserve 'critical' for true emergencies — overnight grant collapse,
     missed-deadline-imminent. Default to 'warn' for things he should see today.
     Do NOT use as a substitute for chat — notifications are for async reach."""
@@ -3906,8 +4085,8 @@ def decompose_goal(goal_id: str, confirmed: bool = False, milestones_json: str =
             user_content += f"\n{existing_text}\n"
 
         system_prompt = (
-            "Decompose Heath Blackmon's goal into 6-10 concrete milestones. "
-            "Each milestone must be: a single deliverable Heath can verify done/not-done; "
+            "Decompose the researcher's goal into 6-10 concrete milestones. "
+            "Each milestone must be: a single deliverable the researcher can verify done/not-done; "
             "have a target date that respects the goal's time_horizon; "
             "and be ordered by dependency (earliest first). "
             "Output ONLY valid JSON with no prose, no preamble, no trailing text:\n"
@@ -4282,7 +4461,7 @@ def list_research_projects(status: str = "active", project_type: str = "paper") 
       status: active | paused | done | dropped | all
       project_type: paper | database | teaching | all (default 'paper' — in
         Heath's lab a 'project' means a student-led paper project with a
-        subfolder in the shared Drive 'Blackmon Lab/Projects' tree).  Grants
+        subfolder in the shared Drive 'Lab/Projects' tree).  Grants
         moved to their own `grants` table on 2026-04-24; call `list_grants`
         for those.
     """
@@ -4309,7 +4488,7 @@ def list_research_projects(status: str = "active", project_type: str = "paper") 
         conn.close()
         if not rows:
             label = f"status={status}, project_type={project_type}"
-            return f"No research projects found ({label}). Heath's paper projects live as subfolders under 'Blackmon Lab/Projects' in the shared Drive; sync_lab_projects mirrors them nightly."
+            return f"No research projects found ({label}). Paper projects live as subfolders under 'Lab/Projects' in the shared Drive; sync_lab_projects mirrors them nightly."
         lines = [
             f"## Research Projects (status={status}, project_type={project_type})\n",
             "| id | name | status | hypothesis (truncated) | next_action | keywords |",
@@ -6220,18 +6399,20 @@ def get_paper_recommendations(seed_dois: str, limit: int = 10) -> str:
 
 @tool
 def get_my_author_profile() -> str:
-    """Fetch Heath's own author profile from Semantic Scholar: paper list, h-index, citation counts,
-    TLDRs for each paper. Uses his ORCID 0000-0002-5433-4036."""
+    """Fetch the researcher's author profile from Semantic Scholar: paper list, h-index, citation counts,
+    TLDRs for each paper. Uses RESEARCHER_FULL_NAME and OPENALEX_AUTHOR_ID env vars."""
     try:
         from agent.apis.semantic_scholar import author_search, get_author, get_author_papers  # noqa: PLC0415
-        candidates = author_search("Heath Blackmon", limit=3)
+        _researcher_name = os.environ.get("RESEARCHER_FULL_NAME", "Researcher Name")
+        _researcher_surname = os.environ.get("RESEARCHER_SURNAME", _researcher_name.split()[-1])
+        candidates = author_search(_researcher_name, limit=3)
         author_id = None
         for c in candidates:
-            if "Blackmon" in (c.get("name") or ""):
+            if _researcher_surname in (c.get("name") or ""):
                 author_id = c.get("authorId")
                 break
         if not author_id:
-            return "Could not resolve Heath's Semantic Scholar author ID."
+            return "Could not resolve researcher's Semantic Scholar author ID."
         a = get_author(author_id) or {}
         papers = get_author_papers(author_id, limit=30)
         out = [
@@ -6576,23 +6757,23 @@ def list_grants(status: str = "all") -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lab drive layout — fresh listing of the top-level of Blackmon Lab/
+# Lab drive layout — fresh listing of the top-level of the shared Lab drive
 # ─────────────────────────────────────────────────────────────────────────────
 
 @tool
 def list_lab_drive_root() -> str:
-    """Return the current top-level layout of Heath's shared `Blackmon Lab/`
-    Drive.  The folder names are self-describing — this tool is the canonical
+    """Return the current top-level layout of the shared Lab Drive.
+    The folder names are self-describing — this tool is the canonical
     answer to "what's in my Drive?" and the right first step before any
-    search_drive call when Heath refers to a specific folder by name.
+    search_drive call when the researcher refers to a specific folder by name.
 
     The system prompt already ships a snapshot of this at chat start; call
-    this tool only when Heath has just created/renamed a top-level folder
+    this tool only when a top-level folder has just been created/renamed
     and the baked-in snapshot is stale.
     """
-    root = os.path.expanduser(
-        "~/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/"
-        "Shared drives/Blackmon Lab"
+    root = os.environ.get(
+        "LAB_SHARED_DRIVE_ROOT",
+        os.path.expanduser("~/Library/CloudStorage/GoogleDrive/Shared drives/Lab"),
     )
     try:
         entries = sorted(os.listdir(root))
@@ -6604,7 +6785,7 @@ def list_lab_drive_root() -> str:
             continue
         full = os.path.join(root, e)
         (folders if os.path.isdir(full) else root_files).append(e)
-    lines = ["## Blackmon Lab/ — top level", ""]
+    lines = ["## Lab Drive — top level", ""]
     if folders:
         lines.append(f"**Folders ({len(folders)}):**")
         for f in folders:
@@ -7037,6 +7218,16 @@ def get_all_tools():
         list_wiki_topics,
         read_wiki_topic,
         retrieve_voice_exemplars,
+        ask_my_record,
+        spawn_subagent,
+        spawn_parallel_subagents,
+        # Open Lab Notebook (Bet 3)
+        request_publish_artifact,
+        unpublish_artifact,
+        list_publish_queue,
+        # CrossRef + subagent telemetry
+        resolve_citation,
+        list_subagent_runs,
         send_ntfy_to_heath,
         read_lab_website,
         read_local_file,

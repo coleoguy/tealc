@@ -1,6 +1,6 @@
 """Wiki janitor job — runs every Monday at 8am Central via APScheduler.
 
-Audits the lab wiki at ~/Desktop/GitHub/coleoguy.github.io/knowledge/ for
+Audits the lab wiki at the lab's GitHub Pages /knowledge/ for
 integrity issues and surfaces them as a briefing row in data/agent.db.
 
 Nine checks (all read-only, no API calls):
@@ -53,7 +53,10 @@ from agent.scheduler import DB_PATH  # noqa: E402
 # ---------------------------------------------------------------------------
 # Path constants
 # ---------------------------------------------------------------------------
-_WIKI_ROOT = Path(os.path.expanduser("~/Desktop/GitHub/coleoguy.github.io/knowledge"))
+_WIKI_ROOT = Path(os.environ.get(
+    "WIKI_TOPICS_DIR",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages/knowledge"),
+))
 _PAPERS_DIR = _WIKI_ROOT / "papers"
 _TOPICS_DIR = _WIKI_ROOT / "topics"
 _REPOS_DIR = _WIKI_ROOT / "repos"

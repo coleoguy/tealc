@@ -31,7 +31,8 @@ except ImportError:
 _OTOL_BASE = "https://api.opentreeoflife.org/v3"
 _TT_API_BASE = "http://timetree.temple.edu/api"
 _NCBI_ESEARCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-_HEADERS = {"User-Agent": "Tealc/1.0 (blackmon@tamu.edu)"}
+_RESEARCHER_EMAIL = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
+_HEADERS = {"User-Agent": f"Tealc/1.0 ({_RESEARCHER_EMAIL})"}
 _TIMEOUT = 15
 
 

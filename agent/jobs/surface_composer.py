@@ -53,7 +53,10 @@ from agent.config import should_run_this_cycle  # noqa: E402
 _JOB_NAME = "surface_composer"
 _HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
-_WIKI_ROOT = os.path.expanduser("~/Desktop/GitHub/coleoguy.github.io/knowledge")
+_WIKI_ROOT = os.environ.get(
+    "WIKI_TOPICS_DIR",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages/knowledge"),
+)
 _TOPICS_DIR = os.path.join(_WIKI_ROOT, "topics")
 _PROPOSALS_DIR = os.path.join(_PROJECT_ROOT, "data", "surface_composer_proposals")
 

@@ -79,7 +79,7 @@ def _fetch_openalex_for_kw(keyword: str, days_back: int = 7, per_page: int = 3) 
         "filter": f"from_publication_date:{since},title_and_abstract.search:{keyword}",
         "sort": "cited_by_count:desc",
         "per_page": per_page,
-        "mailto": "blackmon@tamu.edu",
+        "mailto": os.environ.get("RESEARCHER_EMAIL", "researcher@example.org"),
     }
     try:
         resp = requests.get(url, params=params, timeout=15)

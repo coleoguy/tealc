@@ -229,6 +229,7 @@ def _other_briefings(conn: sqlite3.Connection) -> list[dict]:
             "SELECT id, kind, urgency, title, content_md, created_at "
             "FROM briefings "
             "WHERE surfaced_at IS NULL "
+            "  AND acknowledged_at IS NULL "  # Acknowledge button sets this
             "  AND kind NOT IN ('meeting_prep', 'overnight_draft', 'review_invitation') "
             "ORDER BY created_at DESC LIMIT 20"
         ).fetchall()
@@ -316,10 +317,11 @@ def _inbox(conn: sqlite3.Connection) -> dict:
                 "kind": "hypothesis",
                 "title": title,
                 "summary": hyp_text[:200],
+                "content_md": hyp_text[:6000],  # full body for inline expand
                 "created_at": r["proposed_iso"] or "",
                 "urgency": urgency,
-                "link_text": "View",
-                "link_url": f"/dashboard#hypotheses?id={r['id']}",
+                "link_text": "Expand",
+                "link_url": "",  # inline expand, no nav
                 "action_hint": "Adopt or reject",
             })
     except Exception:
@@ -376,10 +378,11 @@ def _inbox(conn: sqlite3.Connection) -> dict:
                 "kind": "analysis",
                 "title": f"Analysis run — {(r['project_id'] or 'unknown project')[:60]}",
                 "summary": interp[:200],
+                "content_md": interp[:6000],
                 "created_at": r["run_iso"] or "",
                 "urgency": 3,
-                "link_text": "View",
-                "link_url": f"/dashboard#analyses?id={r['id']}",
+                "link_text": "Expand",
+                "link_url": "",
                 "action_hint": "Review interpretation",
             })
     except Exception:
@@ -399,10 +402,11 @@ def _inbox(conn: sqlite3.Connection) -> dict:
                 "kind": "ledger",
                 "title": f"High-quality {r['kind'] or 'output'} (critic score {r['critic_score']})",
                 "summary": content[:200],
+                "content_md": content[:6000],
                 "created_at": r["created_at"] or "",
                 "urgency": 3,
-                "link_text": "View",
-                "link_url": f"/dashboard#ledger?id={r['id']}",
+                "link_text": "Expand",
+                "link_url": "",
                 "action_hint": "Review and approve",
             })
     except Exception:
@@ -431,10 +435,11 @@ def _inbox(conn: sqlite3.Connection) -> dict:
                 "kind": "prereg",
                 "title": f"Prereg pending adjudication: {hyp_text[:60]}{'…' if len(hyp_text) > 60 else ''}",
                 "summary": hyp_text[:200],
+                "content_md": hyp_text[:6000],
                 "created_at": r["prereg_published_at"] or "",
                 "urgency": urgency,
-                "link_text": "View",
-                "link_url": f"/dashboard#prereg?id={r['id']}",
+                "link_text": "Open Prereg tab",
+                "link_url": "#prereg",  # hash matches existing tab id
                 "action_hint": "Check T+7 adjudication status",
             })
     except Exception:
@@ -455,8 +460,8 @@ def _inbox(conn: sqlite3.Connection) -> dict:
                 "summary": f"Draft invitation for domain '{r['domain']}'. SLA: {r['sla_iso'] or 'TBD'}",
                 "created_at": r["created_at"] or "",
                 "urgency": 5,
-                "link_text": "View",
-                "link_url": "/dashboard#reviewer_circle",
+                "link_text": "Open Reviewer Circle tab",
+                "link_url": "#reviewer-circle",  # tab id uses hyphen
                 "action_hint": "Send invitation drafts",
             })
     except Exception:
@@ -478,10 +483,11 @@ def _inbox(conn: sqlite3.Connection) -> dict:
                 "kind": "briefing",
                 "title": r["title"] or f"Briefing ({r['kind']})",
                 "summary": content[:200],
+                "content_md": content[:6000],
                 "created_at": r["created_at"] or "",
                 "urgency": 2,
-                "link_text": "View",
-                "link_url": f"/dashboard#briefings?id={r['id']}",
+                "link_text": "Expand",
+                "link_url": "",
                 "action_hint": "Read and acknowledge",
             })
     except Exception:
@@ -501,10 +507,11 @@ def _inbox(conn: sqlite3.Connection) -> dict:
                 "kind": "intention",
                 "title": f"Intention: {(r['description'] or '')[:80]}",
                 "summary": (r["description"] or "")[:200],
+                "content_md": (r["description"] or "")[:6000],
                 "created_at": r["created_at"] or "",
                 "urgency": 1,
-                "link_text": "View",
-                "link_url": "/dashboard#intentions",
+                "link_text": "Expand",
+                "link_url": "",
                 "action_hint": "Set next action or close",
             })
     except Exception:
@@ -522,6 +529,19 @@ def _inbox(conn: sqlite3.Connection) -> dict:
         return (-item.get("urgency", 0), -ts)
 
     items.sort(key=_sort_key)
+
+    # ── Filter out user-dismissed items (inbox_dismissals table) ─────────────
+    # Each row is (kind, target_id) where target_id matches item['id'] verbatim.
+    # Built once before slicing so dismissed items don't push real items past 50.
+    dismissed_keys: set = set()
+    try:
+        for row in conn.execute("SELECT kind, target_id FROM inbox_dismissals"):
+            dismissed_keys.add((row[0], row[1]))
+    except Exception:
+        pass  # table may not exist on first run before _migrate
+    if dismissed_keys:
+        items = [i for i in items if (i.get("kind"), str(i.get("id"))) not in dismissed_keys]
+
     items = items[:50]
 
     # ── Summary stats ────────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ Rules applied (pure Python, no Anthropic API — $0/run):
   5. outlier_chromosome_counts — chromosomal headers; count >500, non-integer, or negative
 
 Run manually:
-    cd "/Users/blackmon/Google Drive/My Drive/00-Lab-Agent"
+    cd "$HOME/Google Drive/My Drive/00-Lab-Agent"
     python -m agent.jobs.weekly_database_health
 """
 import json

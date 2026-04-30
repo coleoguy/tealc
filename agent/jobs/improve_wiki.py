@@ -45,7 +45,10 @@ from agent.tools import retrieve_voice_exemplars  # noqa: E402
 # Constants
 # ---------------------------------------------------------------------------
 
-_WIKI_ROOT = os.path.expanduser("~/Desktop/GitHub/coleoguy.github.io/knowledge")
+_WIKI_ROOT = os.environ.get(
+    "WIKI_TOPICS_DIR",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages/knowledge"),
+)
 _TOPICS_DIR = os.path.join(_WIKI_ROOT, "topics")
 _PAPERS_DIR = os.path.join(_WIKI_ROOT, "papers")
 
@@ -63,9 +66,9 @@ _BUDGET_USD_CEILING = 2.5   # Abort new calls if spend in this run approaches th
 # ---------------------------------------------------------------------------
 
 _EDITOR_SYSTEM = """\
-You are a scientific wiki editor for the Blackmon Lab's public wiki at
-coleoguy.github.io/knowledge/. You improve existing pages (topic syntheses
-and paper pages) to read more like Heath's own writing, stay internally
+You are a scientific wiki editor for the lab's public wiki at
+the lab's GitHub Pages /knowledge/. You improve existing pages (topic syntheses
+and paper pages) to read more like the researcher's own writing, stay internally
 consistent, and cross-link correctly.
 
 SCOPE OF ALLOWED EDITS:

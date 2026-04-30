@@ -8,7 +8,7 @@ loop picks up the updated deadlines without waiting for the 10-minute cron.
 Returns "deadlines_changed" or "no_change".
 
 Run manually:
-    cd "/Users/blackmon/Google Drive/My Drive/00-Lab-Agent"
+    cd "$HOME/Google Drive/My Drive/00-Lab-Agent"
     python -m agent.jobs.watch_deadlines
 """
 import json

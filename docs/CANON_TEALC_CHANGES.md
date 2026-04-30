@@ -1,8 +1,8 @@
 # Canon Architecture — Tealc Design Items
 
 **Date:** 2026-04-21
-**Context:** 22 of Heath's PDFs moved from `blackmon.pubs/<year-letter>.pdf` to
-`/Users/blackmon/Desktop/GitHub/coleoguy.github.io/pdfs/<DOI_SLUG>.pdf`.
+**Context:** 22 of Heath's PDFs moved from `lab.pubs/<year-letter>.pdf` to
+`~/Desktop/GitHub/lab-pages/pdfs/<DOI_SLUG>.pdf`.
 A mapping is at `data/pdf_doi_map.json`. A wiki-rename agent is migrating paper pages
 from year-letter slugs to DOI slugs. An OA-ingest agent is pulling external papers
 under the same DOI-slug naming.
@@ -23,7 +23,7 @@ already been applied in this session.
    Heath's Discussion/Methods/Conclusions sections). This is the primary source.
 2. **OpenAlex** — abstracts fetched live (fallback when curated count < 40).
 3. **Publications JSON** — title-only passages from
-   `~/Desktop/GitHub/coleoguy.github.io/data/publications.json` (last resort).
+   `~/Desktop/GitHub/lab-pages/data/publications.json` (last resort).
 
 The index currently has no awareness of the PDF files themselves. It does not read PDFs
 directly; it works from curated text snippets already in `data/voice_passages.json`.
@@ -181,7 +181,7 @@ The paper page markdown written by `_compose_paper_page()` includes `doi:`,
 ### What breaks / degrades under Canon
 
 Under Canon, Heath's 22 papers now have publicly served PDFs at
-`https://coleoguy.github.io/pdfs/<DOI_SLUG>.pdf`. A paper's wiki page could link
+`https://lab-pages/pdfs/<DOI_SLUG>.pdf`. A paper's wiki page could link
 directly to the PDF. Currently it does not. This is a missed opportunity, not a break.
 
 External papers ingested via the OA-ingest agent also have DOI-slug PDFs at the same
@@ -193,14 +193,14 @@ path if they are open access; Tealc has no way to surface those links either.
 
 **B. Add `pdf_url:` to paper frontmatter.**
    In `_compose_paper_page()`, if the DOI is known, compute the expected PDF URL:
-   `https://coleoguy.github.io/pdfs/<doi_slug>.pdf` and write it as `pdf_url:` in the
+   `https://lab-pages/pdfs/<doi_slug>.pdf` and write it as `pdf_url:` in the
    YAML front matter. The Jekyll template could then render a "Download PDF" link.
    Requires: verifying the PDF exists at that URL (or at least that the mapping shows
    it should).
 
 **C. Add `pdf_url:` only when the mapping confirms the PDF exists.**
    Check `data/pdf_doi_map.json` (and the actual file on disk at
-   `~/Desktop/GitHub/coleoguy.github.io/pdfs/<slug>.pdf`) before writing the field.
+   `~/Desktop/GitHub/lab-pages/pdfs/<slug>.pdf`) before writing the field.
 
 ### Heath decisions needed
 
@@ -323,7 +323,7 @@ chain and validate existence in one call.
 
 ### 6d. `list_canon_pdfs() -> str`
 
-**What it does:** Scans `~/Desktop/GitHub/coleoguy.github.io/pdfs/` and returns a
+**What it does:** Scans `~/Desktop/GitHub/lab-pages/pdfs/` and returns a
 table of all DOI-slug PDFs present: slug, DOI (reconstructed), file size, and whether
 a matching wiki paper page exists.
 

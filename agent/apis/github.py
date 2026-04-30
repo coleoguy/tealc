@@ -28,8 +28,9 @@ _PROJECT_ROOT = os.path.normpath(
 load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
 
 _BASE = "https://api.github.com"
+_RESEARCHER_EMAIL = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
 _HEADERS_BASE = {
-    "User-Agent": "Tealc/1.0 (blackmon@tamu.edu)",
+    "User-Agent": f"Tealc/1.0 ({_RESEARCHER_EMAIL})",
     "Accept": "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
 }

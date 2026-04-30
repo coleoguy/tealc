@@ -52,8 +52,8 @@ _R_KEYWORDS = {
 # ---------------------------------------------------------------------------
 
 _CODE_WRITER_SYSTEM = """\
-You write R code to execute one specific analysis Heath Blackmon has queued for an active \
-research project. Heath's lab uses ape, phytools, geiger, diversitree, tidyverse, ggplot2. \
+You write R code to execute one specific analysis the researcher has queued for an active \
+research project. The lab uses ape, phytools, geiger, diversitree, tidyverse, ggplot2. \
 The project's `data_dir` contains relevant inputs; `output_dir` is where any artifacts \
 should be saved.
 

@@ -38,7 +38,8 @@ _DEFAULT_AUTHOR_FIELDS = "authorId,name,papers,hIndex,citationCount,affiliations
 
 def _session() -> requests.Session:
     s = requests.Session()
-    s.headers.update({"User-Agent": "Tealc/1.0 (blackmon@tamu.edu)"})
+    _researcher_email = os.environ.get("RESEARCHER_EMAIL", "researcher@example.org")
+    s.headers.update({"User-Agent": f"Tealc/1.0 ({_researcher_email})"})
     key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "")
     if key:
         s.headers.update({"x-api-key": key})
@@ -270,7 +271,7 @@ def get_author_papers(author_id: str, limit: int = 100) -> list[dict]:
 def author_search(query: str, limit: int = 5, fields: list[str] | None = None) -> list[dict]:
     """Search for authors by name. Useful for resolving a name or ORCID to an S2 authorId.
 
-    Example: author_search('Heath Blackmon') → [{authorId, name, hIndex, ...}, ...]
+    Example: author_search('Some Author') → [{authorId, name, hIndex, ...}, ...]
     """
     field_str = ",".join(fields) if fields else _DEFAULT_AUTHOR_FIELDS
     url = f"{_BASE}/author/search"

@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.blackmon.tealc-scheduler</string>
+    <string>com.tealc-scheduler</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive/00-Lab-Agent/scripts/start_scheduler.sh</string>
+        <string>REPLACE_WITH_ABSOLUTE_PATH/scripts/start_scheduler.sh</string>
     </array>
 
     <key>RunAtLoad</key>
@@ -21,13 +21,13 @@
     <integer>60</integer>
 
     <key>WorkingDirectory</key>
-    <string>/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive/00-Lab-Agent</string>
+    <string>REPLACE_WITH_ABSOLUTE_PATH</string>
 
     <key>StandardOutPath</key>
-    <string>/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive/00-Lab-Agent/data/launchd.stdout.log</string>
+    <string>REPLACE_WITH_ABSOLUTE_PATH/data/launchd.stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive/00-Lab-Agent/data/launchd.stderr.log</string>
+    <string>REPLACE_WITH_ABSOLUTE_PATH/data/launchd.stderr.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>

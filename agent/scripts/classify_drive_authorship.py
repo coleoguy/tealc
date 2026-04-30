@@ -1,7 +1,7 @@
 """Classify authorship role for every PDF in a Drive folder.
 
 For each PDF, download + extract first-page text + ask Haiku whether a named
-author ('Blackmon' by default) is the FIRST, LAST, MIDDLE, or NOT_AUTHOR.
+author (set via --author flag, default 'ResearcherSurname') is the FIRST, LAST, MIDDLE, or NOT_AUTHOR.
 Prints a classification report + an allow-list of file IDs matching
 specified role(s). That allow-list is then fed to batch_ingest_folder via
 --allow-ids-file.
@@ -11,7 +11,7 @@ Cost: ~$0.001 per paper (Haiku on 800-char first-page snippet).
 Usage:
     PYTHONPATH=/path/to/00-Lab-Agent ~/.lab-agent-venv/bin/python \\
         -m agent.scripts.classify_drive_authorship <FOLDER_ID> \\
-        [--author "Blackmon"] \\
+        [--author "ResearcherSurname"] \\
         [--roles first,last] \\
         [--output-file /tmp/allow_ids.txt]
 
@@ -61,10 +61,10 @@ Rules:
 - "Last" means the final position (common convention for senior/PI author).
 - If there are only two authors and the named author is one of them, they are
   either FIRST or LAST (never MIDDLE).
-- If the surname appears in an affiliation line (e.g. "Blackmon Lab at TAMU"),
+- If the surname appears in an affiliation line (e.g. "Smith Lab at University"),
   that alone does NOT make them an author — they must be in the actual
   author list.
-- For ambiguous initials like "H. Blackmon" vs "Heath Blackmon", either counts.
+- For ambiguous initials (e.g. "H. Smith" vs "Heath Smith"), either counts.
 - Reply with just one token. No period, no explanation."""
 
 
@@ -160,8 +160,8 @@ def _classify_one(client: Anthropic, file_id: str, name: str,
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="Classify authorship for PDFs in a Drive folder.")
     ap.add_argument("folder_id", help="Google Drive folder ID")
-    ap.add_argument("--author", default="Blackmon",
-                    help="Author surname to classify (default: Blackmon)")
+    ap.add_argument("--author", default=os.environ.get("RESEARCHER_SURNAME", "ResearcherSurname"),
+                    help="Author surname to classify")
     ap.add_argument("--roles", default="first_or_last",
                     help="Comma-separated roles to include in allow-list. "
                          "Options: first, last, first_or_last, middle, not_author, uncertain")

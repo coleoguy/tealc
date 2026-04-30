@@ -6,10 +6,10 @@ Drafts are created live (non-destructive). Notifications are advisor-mode only
 (would_notify=1 logged, but no actual notify_heath call).
 
 Off-hours guard: returns early with "skipped: off-hours" outside 7am–10pm Central
-so cost stays low when Heath isn't working.
+so cost stays low when researcher isn't working.
 
 Run manually:
-    cd "/Users/blackmon/Google Drive/My Drive/00-Lab-Agent"
+    cd "$HOME/Google Drive/My Drive/00-Lab-Agent"
     python -m agent.jobs.email_triage
 """
 import json
@@ -52,69 +52,69 @@ SONNET_MODEL = "claude-sonnet-4-6"
 VALID_CLASSIFICATIONS = {"ignore", "file", "drafts_reply", "notify", "requires_human", "service_request", "review_invitation"}
 
 # ---------------------------------------------------------------------------
-# Haiku system prompt: Heath's email triage preferences
+# Haiku system prompt: researcher's email triage preferences
 # ---------------------------------------------------------------------------
-HAIKU_SYSTEM = """You are Tealc's email triage engine for Dr. Heath Blackmon (Associate Professor, Texas A&M Biology).
+HAIKU_SYSTEM = """You are Tealc's email triage engine for the researcher (PI).
 Classify each email into EXACTLY ONE of these categories:
 
 - ignore: promotional, automated digests, newsletter, Slack/GitHub notifications, mailing list traffic
 - file: informational emails that are good to archive but need no reply or action
 - drafts_reply: emails from humans expecting a reply that Tealc can draft (collaborators, students, colleagues asking questions)
-- notify: time-sensitive items Heath should see today — calendar invites, urgent institutional notices
-- requires_human: emails requiring Heath's personal judgment — personal/sensitive emails, anything ambiguous that is NOT a service request
-- service_request: any ask for Heath's time as a service commitment — committee invitation, talk invitation, board membership, editorial board ask, award nomination task, organizing roles, advisory panels, or any similar ask that would consume Heath's time as institutional or professional service (NOT manuscript/grant peer-review invitations — those are review_invitation)
+- notify: time-sensitive items the researcher should see today — calendar invites, urgent institutional notices
+- requires_human: emails requiring the researcher's personal judgment — personal/sensitive emails, anything ambiguous that is NOT a service request
+- service_request: any ask for the researcher's time as a service commitment — committee invitation, talk invitation, board membership, editorial board ask, award nomination task, organizing roles, advisory panels, or any similar ask that would consume the researcher's time as institutional or professional service (NOT manuscript/grant peer-review invitations — those are review_invitation)
 - review_invitation: a specific invitation to peer-review a manuscript or grant proposal — phrases like "Invitation to review", "We invite you to review", "review this manuscript", "referee this submission", "peer review request", "would you be willing to review"
 
 RULES (in order):
 1. Peer-review or referee invitations (manuscript review, grant review, ad hoc reviewer requests) → review_invitation
-2. Other service requests (committee invitations, speaking invitations, board memberships, editorial roles, award nominations requiring Heath's effort) → service_request
+2. Other service requests (committee invitations, speaking invitations, board memberships, editorial roles, award nominations requiring the researcher's effort) → service_request
 3. Student crisis signals (urgent, distress, emergency, failing, withdrawing) → notify
 4. Calendar invites or scheduling requests from humans → notify
 5. Routine collaborator emails asking a question or requesting a response → drafts_reply
 6. Newsletter, Slack digest, GitHub notification, automated alert, mailing list → ignore
 7. Informational updates with no action needed → file
-8. Anything else requiring Heath's personal judgment but NOT a service ask → requires_human
+8. Anything else requiring the researcher's personal judgment but NOT a service ask → requires_human
 
 Output ONLY valid JSON with no other text:
 {"classification": "<one of the seven>", "reasoning": "<one sentence>", "confidence": <0.0 to 1.0>}"""
 
 # ---------------------------------------------------------------------------
-# Sonnet system prompt: draft replies in Heath's voice
+# Sonnet system prompt: draft replies in The researcher's voice
 # ---------------------------------------------------------------------------
-SONNET_DRAFT_SYSTEM = """You are Tealc drafting an email reply for Dr. Heath Blackmon (Associate Professor, Texas A&M University Biology).
-Heath's writing voice: direct, precise, no hedging, no filler phrases, no "I hope this email finds you well."
-Write 3–6 sentences. Be warm but concise. This is a draft for Heath to review — frame it as a starting point.
+SONNET_DRAFT_SYSTEM = """You are Tealc drafting an email reply for the researcher (PI).
+The researcher's writing voice: direct, precise, no hedging, no filler phrases, no "I hope this email finds you well."
+Write 3–6 sentences. Be warm but concise. This is a draft for the researcher to review — frame it as a starting point.
 Do not include a subject line or salutation header — just the body text."""
 
 
 # ---------------------------------------------------------------------------
 # Sonnet system prompt: NAS test for service requests
 # ---------------------------------------------------------------------------
-NAS_TEST_SYSTEM = """Heath Blackmon is being asked to take on a service commitment. His career goal is NAS membership; \
+NAS_TEST_SYSTEM = """The researcher is being asked to take on a service commitment. His career goal is NAS membership; \
 his protection rule is "service requests must directly advance NAS trajectory or protect students — otherwise decline." \
-Score the request 0-1 against this rule, given Heath's current active goals (provided below).
+Score the request 0-1 against this rule, given the researcher's current active goals (provided below).
 
 Output ONLY valid JSON with no other text:
 {"recommendation": "accept" | "decline", "reasoning": "<2 sentences citing specific goals or the NAS rule>", \
-"draft_body": "<a 3-5 sentence draft email Heath can send — polite, in his direct voice, no hedging, no 'I hope this finds you well'>"}
+"draft_body": "<a 3-5 sentence draft email the researcher can send — polite, in his direct voice, no hedging, no 'I hope this finds you well'>"}
 
 For declines: thank but firmly decline without a long explanation. Do NOT say you're too busy — just say it's not the right fit for where your work is focused.
 For accepts: frame as "yes, because this directly advances X (a specific named goal)".
-Heath's voice: direct, precise, no filler phrases."""
+The researcher's voice: direct, precise, no filler phrases."""
 
 
 # ---------------------------------------------------------------------------
 # Sonnet system prompt: review invitation fit + draft
 # ---------------------------------------------------------------------------
-REVIEW_INVITATION_SYSTEM = """Heath Blackmon (Associate Professor, Texas A&M Biology) received a peer-review invitation.
-His service-protection rule: DECLINE unless (a) topical fit is VERY high AND (b) it is a top-tier journal (Nature, Science, Cell, PNAS, Current Biology, eLife, Nature Genetics, Nature Ecology & Evolution, PLOS Biology, or equivalent).
-Heath's research topics: sex chromosome evolution, karyotype evolution, genome structure, chromosome number, Fragile Y Hypothesis, epistasis, arthropod genomics, Coleoptera, comparative genomics, mating systems, sexual antagonism, domestication genetics.
+REVIEW_INVITATION_SYSTEM = """The researcher (PI) received a peer-review invitation.
+Their service-protection rule: DECLINE unless (a) topical fit is VERY high AND (b) it is a top-tier journal (Nature, Science, Cell, PNAS, Current Biology, eLife, Nature Genetics, Nature Ecology & Evolution, PLOS Biology, or equivalent).
+Researcher's topics: (configured via RESEARCHER_TOPICS in .env)
 
-Score bibliographic fit 0.0–1.0 based on how closely the manuscript topic matches Heath's active research.
-Default recommendation: DECLINE (Heath is Associate Dept Head + EEB Chair — massive admin burden).
+Score bibliographic fit 0.0–1.0 based on how closely the manuscript topic matches the researcher's active research.
+Default recommendation: DECLINE (PI has significant admin duties — default to protecting time).
 
 Output ONLY valid JSON with no other text:
-{"fit_score": <0.0 to 1.0>, "fit_reasoning": "<one sentence on topic overlap>", "journal_tier": "top-tier" | "mid-tier" | "low-tier" | "unknown", "recommendation": "accept" | "decline", "decline_draft": "<3-4 sentence polite decline in Heath's direct voice, no hedging, no 'I hope this finds you well'>", "accept_draft": "<3-4 sentence acceptance noting the specific topical fit, in Heath's direct voice>"}"""
+{"fit_score": <0.0 to 1.0>, "fit_reasoning": "<one sentence on topic overlap>", "journal_tier": "top-tier" | "mid-tier" | "low-tier" | "unknown", "recommendation": "accept" | "decline", "decline_draft": "<3-4 sentence polite decline in the researcher's direct voice, no hedging, no 'I hope this finds you well'>", "accept_draft": "<3-4 sentence acceptance noting the specific topical fit, in the researcher's direct voice>"}"""
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +203,7 @@ def _run_nas_test(
         f"From: {from_email}\n"
         f"Subject: {subject}\n"
         f"Body preview: {snippet}\n\n"
-        f"Heath's active goals (importance >= 3):\n{goals_text}"
+        f"the researcher's active goals (importance >= 3):\n{goals_text}"
     )
 
     try:
@@ -424,7 +424,7 @@ def job() -> str:
                 classification = "requires_human"
                 reasoning = f"Invalid classification from Haiku ({classification}); defaulting to requires_human"
 
-            # Service requests always notify Heath regardless of hours
+            # Service requests always notify the researcher regardless of hours
             would_notify = 1 if classification in ("notify", "service_request") else 0
             draft_id = None
             service_recommendation = None
@@ -459,7 +459,7 @@ def job() -> str:
                         log.warning(f"email_triage: draft_email_reply returned unexpected: {draft_result}")
                 except Exception as draft_exc:
                     log.error(f"email_triage: draft failed for {message_id}: {draft_exc}")
-                    # Downgrade to requires_human so Heath sees it
+                    # Downgrade to requires_human so researcher sees it
                     classification = "requires_human"
                     reasoning = f"Draft attempt failed: {draft_exc}"
                     draft_id = None

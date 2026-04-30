@@ -33,7 +33,10 @@ DB_PATH = os.path.join(DATA_DIR, "agent.db")
 _migrate()
 
 # Activity log written to the lab website repo for the public aquarium
-AQUARIUM_LOG = "/Users/blackmon/Desktop/GitHub/coleoguy.github.io/tealc_activity.json"
+AQUARIUM_LOG = os.environ.get(
+    "AQUARIUM_LOG_PATH",
+    os.path.expanduser("~/Desktop/GitHub/lab-pages/tealc_activity.json"),
+)
 AQUARIUM_MAX_EVENTS = 50
 
 OPUS = "claude-opus-4-7"
@@ -176,7 +179,7 @@ async def on_chat_start():
 
     await cl.Message(
         content=(
-            "### Blackmon Lab — Tealc\n\n"
+            "### Lab — Tealc\n\n"
             "Hello Heath! I'm Tealc, your lab agent — running on **Sonnet 4.6**.\n\n"
             "Gmail, Calendar, Drive, Docs, and Sheets are all connected.\n\n"
             "Say **'think hard'** or **'use opus'** to switch to Opus 4.7 for deep work."

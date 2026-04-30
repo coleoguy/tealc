@@ -29,7 +29,7 @@ from agent.scheduler import DB_PATH  # noqa: E402
 # System prompt for Sonnet
 # ---------------------------------------------------------------------------
 RETRO_SYSTEM_PROMPT = """\
-You write Heath Blackmon's quarterly retrospective on his goal portfolio. He has the goal \
+You write the researcher's quarterly retrospective on their goal portfolio. They have the goal \
 of NAS membership and is drowning in responsibilities. The past 90 days of activity are \
 summarized below. Your output is a deep review Heath reads on a Sunday evening — it should \
 change how he thinks about the next quarter.

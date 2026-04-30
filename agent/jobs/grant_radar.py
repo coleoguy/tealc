@@ -5,7 +5,7 @@ scores each one against Heath's research profile using Haiku, and surfaces
 high-fit opportunities as briefings.
 
 Run manually:
-    cd "/Users/blackmon/Google Drive/My Drive/00-Lab-Agent"
+    cd "$HOME/Google Drive/My Drive/00-Lab-Agent"
     python -m agent.jobs.grant_radar
 """
 from __future__ import annotations
@@ -45,7 +45,7 @@ SOURCES_PATH = os.path.join(
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 
-HEATH_PROFILE = """Heath Blackmon — TAMU Biology PI. Two co-equal lanes: evolutionary genomics AND AI-for-Science.
+HEATH_PROFILE = """PI — Biology. Two co-equal lanes: evolutionary genomics AND AI-for-Science.
 
 CORE EXPERTISE
 - Genome structure evolution: sex chromosomes, karyotype evolution, chromosome dynamics, dosage compensation, epistasis, speciation
@@ -172,13 +172,92 @@ def _seven_days_ago_str() -> str:
     return d.strftime("%m/%d/%Y")
 
 
+_PREFERENCES_PATH = os.path.join(_PROJECT_ROOT, "data", "heath_preferences.md")
+
+
+def _load_dismiss_context(limit: int = 15) -> str:
+    """Pull the most recent dismissed grants (title + reason) from
+    preference_signals so Haiku learns what NOT to surface.
+
+    Returns a markdown block, or empty string if no signal data.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        # Handle both legacy int target_id and new "grant_<id>" string target_id.
+        rows = conn.execute(
+            """
+            SELECT g.title, p.user_reason, p.captured_at
+            FROM preference_signals p
+            LEFT JOIN grant_opportunities g
+              ON g.id = CAST(REPLACE(COALESCE(p.target_id, ''), 'grant_', '') AS INTEGER)
+            WHERE p.signal_type = 'dismiss'
+              AND p.target_kind IN ('grant_opportunity', 'grant')
+              AND COALESCE(p.user_reason, '') != ''
+            ORDER BY p.captured_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        log.warning("dismiss-context query failed: %s", exc)
+        return ""
+    if not rows:
+        return ""
+    lines = ["RECENT USER DISMISSALS — down-score titles/scopes resembling these:"]
+    for title, reason, _captured in rows:
+        if not reason:
+            continue
+        title_short = (title or "(unknown title)")[:90]
+        lines.append(f'- "{title_short}" — reason: {reason[:80]}')
+    if len(lines) == 1:
+        return ""
+    lines.append(
+        "RULE: if a candidate matches one of these patterns (same scope, same"
+        " eligibility blocker, same reason), score it lower than its surface"
+        " match would suggest. Do NOT rationalize past Heath's stated reasons."
+    )
+    return "\n".join(lines)
+
+
+def _load_consolidated_preferences() -> str:
+    """Read the top section of heath_preferences.md (most recent week's
+    consolidated dismiss/adopt patterns) so Haiku honors learned rules."""
+    try:
+        with open(_PREFERENCES_PATH, "r", encoding="utf-8") as f:
+            content = f.read()
+    except (FileNotFoundError, OSError):
+        return ""
+    # Take only the first ~3000 chars (most recent week's section is at the top).
+    # The consolidator prepends new sections, so newest is on top.
+    snippet = content[:3000].strip()
+    if not snippet or "_No consolidated preferences yet" in snippet:
+        return ""
+    return f"LEARNED PREFERENCES (from past dismissals/adoptions — honor these):\n\n{snippet}"
+
+
 def _score_entry(client: Anthropic, title: str, desc: str, url: str) -> Optional[dict]:
-    """Score an opportunity with Haiku. Returns parsed JSON dict or None."""
+    """Score an opportunity with Haiku. Returns parsed JSON dict or None.
+
+    The system prompt is HEATH_PROFILE plus two appendices that close the
+    feedback loop:
+      1. Recent dismissed titles + reasons (last 15) — learns within a single run
+      2. Consolidated preferences from past weeks — durable rules
+    """
+    system_parts = [HEATH_PROFILE]
+    learned = _load_consolidated_preferences()
+    if learned:
+        system_parts.append(learned)
+    recent = _load_dismiss_context(limit=15)
+    if recent:
+        system_parts.append(recent)
+    system = "\n\n---\n\n".join(system_parts)
+
     try:
         judgement = client.messages.create(
             model=HAIKU_MODEL,
             max_tokens=400,
-            system=HEATH_PROFILE,
+            system=system,
             messages=[{"role": "user", "content": f"{title}\n\n{desc}\n\n{url}"}],
         )
         raw_text = judgement.content[0].text

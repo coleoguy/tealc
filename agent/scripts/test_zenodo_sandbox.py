@@ -52,7 +52,7 @@ def run():
         meta = {
             "title": "Tealc smoke test deposit — delete me",
             "description": "Automated sandbox smoke test. Safe to delete.",
-            "creators": [{"name": "Blackmon, Heath", "affiliation": "Texas A&M University"}],
+            "creators": [{"name": os.environ.get("RESEARCHER_CREATOR_NAME", "Researcher, A."), "affiliation": os.environ.get("RESEARCHER_AFFILIATION", "University")}],
             "upload_type": "dataset",
             "access_right": "open",
             "license": "cc-by-4.0",

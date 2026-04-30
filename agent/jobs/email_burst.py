@@ -11,7 +11,7 @@ Returns:
   "burst_fired: <triage_result>" — flag found, triage ran
 
 Run manually:
-    cd "/Users/blackmon/Google Drive/My Drive/00-Lab-Agent"
+    cd "$HOME/Google Drive/My Drive/00-Lab-Agent"
     python -m agent.jobs.email_burst
 """
 import os

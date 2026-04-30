@@ -1,4 +1,7 @@
-const ALLOWED_ORIGIN = 'https://coleoguy.github.io';
+// Production deployments override ALLOWED_ORIGIN via the AQUARIUM_ORIGIN worker env var.
+const ALLOWED_ORIGIN = (typeof AQUARIUM_ORIGIN !== 'undefined' && AQUARIUM_ORIGIN)
+    ? AQUARIUM_ORIGIN
+    : 'https://your-org.github.io';
 const KV_KEY = 'aquarium';
 
 export default {

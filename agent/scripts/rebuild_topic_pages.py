@@ -17,7 +17,7 @@ Usage:
         -m agent.scripts.rebuild_topic_pages
 
 Dry-run only — every call stages the page to disk but does NOT commit or push.
-Review the result under coleoguy.github.io/knowledge/topics/ and commit yourself.
+Review the result under your lab's GitHub Pages knowledge/topics/ and commit yourself.
 """
 from __future__ import annotations
 

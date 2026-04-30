@@ -1,8 +1,8 @@
 """Paper-of-the-day job — runs daily at 6:00am Central via APScheduler.
 
-Searches OpenAlex across Heath's keyword topics, picks the single most
+Searches OpenAlex across the researcher's keyword topics, picks the single most
 relevant recent paper, has Sonnet write a 5-sentence "why this matters to
-Heath" summary, stores it, and creates a briefing so morning_briefing surfaces it.
+researcher" summary, stores it, and creates a briefing so morning_briefing surfaces it.
 
 Run manually to test:
     python -m agent.jobs.paper_of_the_day
@@ -27,16 +27,16 @@ from agent.scheduler import DB_PATH  # noqa: E402
 # Sonnet system prompt for the 5-sentence summary
 # ---------------------------------------------------------------------------
 _SYSTEM_PROMPT = (
-    "You write a 5-sentence 'why this matters to Heath Blackmon' summary for one paper, "
+    "You write a 5-sentence 'why this matters to the researcher' summary for one paper, "
     "given his research program: genome structure evolution, sex chromosome turnover, "
     "chromosome number / dysploidy, comparative phylogenetics across arthropods/mammals/fish/plants, "
     "the Fragile Y Hypothesis, the chromosomal stasis result. "
-    "Heath's career goal is NAS membership; he cares about high-impact framings. "
+    "the researcher's career goal is NAS membership; he cares about high-impact framings. "
     "Output ONLY the 5 sentences in markdown. No preamble. "
     "Each sentence: complete, specific, useful. "
     "First sentence: the paper's core claim. "
-    "Sentences 2-3: how this connects to or challenges Heath's program. "
-    "Sentence 4: a concrete next-step Heath could take (cite, contact author, build on). "
+    "Sentences 2-3: how this connects to or challenges the researcher's program. "
+    "Sentence 4: a concrete next-step the researcher could take (cite, contact author, build on). "
     "Sentence 5: the strategic NAS angle, or 'No immediate NAS angle.' if there isn't one."
 )
 
@@ -49,7 +49,7 @@ def _fetch_openalex(keyword: str, days_back: int = 30, per_page: int = 5) -> lis
     """Fetch recent works from OpenAlex for a keyword, sorted by citations desc.
 
     Uses title_and_abstract.search for reliable keyword matching.
-    Default window is 30 days — Heath's keywords are specific enough that
+    Default window is 30 days — the researcher's keywords are specific enough that
     7 days often yields nothing.
     """
     since = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%d")
@@ -58,7 +58,7 @@ def _fetch_openalex(keyword: str, days_back: int = 30, per_page: int = 5) -> lis
         "filter": f"from_publication_date:{since},title_and_abstract.search:{keyword}",
         "sort": "cited_by_count:desc",
         "per_page": per_page,
-        "mailto": "blackmon@tamu.edu",
+        "mailto": os.environ.get("RESEARCHER_EMAIL", "researcher@example.org"),
     }
     try:
         resp = requests.get(url, params=params, timeout=15)
@@ -136,7 +136,7 @@ def _reconstruct_abstract(inverted: dict) -> str:
 
 @tracked("paper_of_the_day")
 def job() -> str:
-    """Pick the single most relevant new paper from Heath's topics and summarise it."""
+    """Pick the single most relevant new paper from the researcher's topics and summarise it."""
     today_iso = datetime.now(timezone.utc).date().isoformat()
 
     # 1. Check if we already have today's paper

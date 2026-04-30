@@ -5,8 +5,8 @@
 
 set -euo pipefail
 
-PLIST_DST="$HOME/Library/LaunchAgents/com.blackmon.tealc-scheduler.plist"
-LABEL="com.blackmon.tealc-scheduler"
+PLIST_DST="$HOME/Library/LaunchAgents/com.tealc-scheduler.plist"
+LABEL="com.tealc-scheduler"
 UID_VAL="$(id -u)"
 
 echo "==> Uninstalling Tealc LaunchAgent..."
