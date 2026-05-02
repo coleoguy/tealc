@@ -3112,10 +3112,6 @@ function openInboxModal(item, card) {
   errEl.style.cssText = 'margin-bottom:8px';
   box.appendChild(errEl);
 
-  // ── Action buttons ────────────────────────────────────────────────────
-  const actionsDiv = document.createElement('div');
-  actionsDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px';
-
   // Helper: run action, close modal & remove card on success
   const doAction = async (payload) => {
     errEl.textContent = '';
@@ -3128,15 +3124,47 @@ function openInboxModal(item, card) {
     }
   };
 
-  // Per-kind primary actions
-  if (item.kind === 'ledger') {
+  // ── Quality rating row ────────────────────────────────────────────────
+  // Universal across kinds. Good/OK/Bad writes a preference_signals row,
+  // updates output_ledger.user_action for kind=ledger, and dismisses from
+  // the inbox queue. This is the actual feedback channel that teaches
+  // Tealc what the user values — paper_radar, grant_radar, and the
+  // weekly_hypothesis_generator reranker prompts read these signals.
+  const rateRow = document.createElement('div');
+  rateRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap';
+  const rateLabel = document.createElement('span');
+  rateLabel.style.cssText = 'font-size:12px;color:var(--ink-faint,#8b7a72)';
+  rateLabel.textContent = 'Was this useful?';
+  rateRow.appendChild(rateLabel);
+
+  const RATING_BUTTONS = [
+    ['Good',  'good', '#16a34a'],  // green
+    ['OK',    'ok',   '#94a3b8'],  // slate
+    ['Bad',   'bad',  '#dc2626'],  // red
+  ];
+  RATING_BUTTONS.forEach(([label, rating, color]) => {
     const btn = document.createElement('button');
-    btn.className = 'btn btn-primary';
-    btn.textContent = 'Mark reviewed';
+    btn.className = 'btn';
+    btn.style.cssText = `background:${color};color:#fff;border-color:${color};font-size:12px;padding:4px 12px;font-weight:600`;
+    btn.textContent = label;
     btn.addEventListener('click', () => doAction({
-      action: 'dismiss_inbox_item', kind: 'ledger', target_id: item.id, reason: 'reviewed',
+      action: 'rate_inbox_item', kind: item.kind, target_id: item.id, rating,
     }));
-    actionsDiv.appendChild(btn);
+    rateRow.appendChild(btn);
+  });
+  box.appendChild(rateRow);
+
+  // ── Action buttons ────────────────────────────────────────────────────
+  const actionsDiv = document.createElement('div');
+  actionsDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px';
+
+  // Per-kind PRIMARY actions (workflow-state changes — distinct from rating).
+  // For 'ledger' kind there is no separate workflow action; Good/OK/Bad
+  // above is the only feedback path. (Pre-2026-05-02 there was a "Mark
+  // reviewed" button here that wrote a dismissal but no quality signal —
+  // removed because Good/OK/Bad supersedes it.)
+  if (item.kind === 'ledger') {
+    // No additional action — Good/OK/Bad above is the full feedback.
 
   } else if (item.kind === 'hypothesis') {
     // target_id for hypothesis actions is the integer part (strip "hyp_" prefix)

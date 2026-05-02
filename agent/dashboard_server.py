@@ -133,32 +133,72 @@ async def inbox():
     Returns the pre-computed inbox from dashboard_state.json (written every
     minute by publish_dashboard).  Falls back to live computation if the
     state file is missing.
+
+    POST-CACHE FILTER: applies a fresh `inbox_dismissals` filter on top of
+    the cached items so user actions (rate_inbox_item, dismiss_inbox_item)
+    take effect on the very next request, not after the next 1-minute
+    publish_dashboard tick. Without this, the user clicks Good/OK/Bad,
+    the card disappears optimistically via the frontend, then reappears
+    on the next 30-second dashboard auto-refresh — bad UX.
     """
+    inbox_data = None
     try:
         with open(os.path.join(DATA_DIR, "dashboard_state.json")) as f:
             state = json.load(f)
         inbox_data = state.get("inbox")
         if inbox_data is not None:
             inbox_data["generated_at"] = state.get("generated_at", _now_iso())
-            return JSONResponse(inbox_data)
     except FileNotFoundError:
         pass
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
     # Fallback: compute live
+    if inbox_data is None:
+        try:
+            import sqlite3 as _sqlite3
+            conn = _sqlite3.connect(DB_PATH)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.row_factory = _sqlite3.Row
+            from agent.jobs.publish_dashboard import _inbox as _compute_inbox
+            inbox_data = _compute_inbox(conn)
+            conn.close()
+            inbox_data["generated_at"] = _now_iso()
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    # Apply fresh inbox_dismissals filter (cheap — single indexed SELECT).
     try:
         import sqlite3 as _sqlite3
         conn = _sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.row_factory = _sqlite3.Row
-        from agent.jobs.publish_dashboard import _inbox as _compute_inbox
-        result = _compute_inbox(conn)
+        dismissed_keys = {
+            (row[0], row[1])
+            for row in conn.execute("SELECT kind, target_id FROM inbox_dismissals")
+        }
         conn.close()
-        result["generated_at"] = _now_iso()
-        return JSONResponse(result)
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        if dismissed_keys and inbox_data.get("items"):
+            before = len(inbox_data["items"])
+            inbox_data["items"] = [
+                i for i in inbox_data["items"]
+                if (i.get("kind"), str(i.get("id"))) not in dismissed_keys
+            ]
+            after = len(inbox_data["items"])
+            if before != after:
+                # Recompute the inbox_summary counts so the badge stays consistent.
+                inbox_data.setdefault("inbox_summary", {})
+                inbox_data["inbox_summary"]["total_pending"] = after
+                # Recount by_kind too
+                by_kind: dict = {}
+                for it in inbox_data["items"]:
+                    k = it.get("kind", "?")
+                    by_kind[k] = by_kind.get(k, 0) + 1
+                inbox_data["inbox_summary"]["by_kind"] = by_kind
+    except Exception as exc:
+        # Filter is best-effort — never fail the request because of it.
+        print(f"[/api/inbox] post-cache dismissal filter failed: {exc}")
+
+    return JSONResponse(inbox_data)
 
 
 @app.get("/api/reviewer_circle")
@@ -240,6 +280,7 @@ class ActionRequest(BaseModel):
     reason: str | None = None
     outcome: str | None = None
     kind: str | None = None  # used by dismiss_inbox_item to scope the dismissal
+    rating: str | None = None  # used by rate_inbox_item: "good" | "ok" | "bad"
 
 
 _VALID_ACTIONS = {
@@ -252,6 +293,7 @@ _VALID_ACTIONS = {
     "create_project_folder",
     "dismiss_grant_opportunity",
     "dismiss_inbox_item",
+    "rate_inbox_item",
     "defer_stalled_goal",
 }
 
@@ -538,6 +580,59 @@ async def action(req: ActionRequest):
                 print(f"[dashboard] signal-write failed: {exc}")
             conn.close()
             return JSONResponse({"ok": True, "action": "dismiss_grant_opportunity", "id": grant_pk_int})
+
+        elif req.action == "rate_inbox_item":
+            # Quality rating: good/ok/bad. The actual feedback channel that
+            # teaches Tealc what the user actually values. Three writes:
+            #   1. preference_signals — consumed by reranker Haiku prompts
+            #      (paper_radar, grant_radar, weekly_hypothesis_generator)
+            #   2. output_ledger.user_action — for kind="ledger" only;
+            #      maps good→adopted, ok→ignored, bad→rejected so retrieval-
+            #      quality jobs can correlate critic scores with user judgment
+            #   3. inbox_dismissals — removes the card from the unified inbox
+            if req.target_id is None:
+                raise HTTPException(status_code=400, detail="target_id required for rate_inbox_item")
+            kind = (req.kind or "").strip()
+            if not kind:
+                raise HTTPException(status_code=400, detail="kind required for rate_inbox_item")
+            rating = (req.rating or "").strip().lower()
+            if rating not in ("good", "ok", "bad"):
+                raise HTTPException(status_code=400, detail="rating must be 'good', 'ok', or 'bad'")
+            tid = str(req.target_id)
+            signal_type = f"rate_{rating}"
+
+            # 1. Preference signal
+            try:
+                conn.execute(
+                    "INSERT INTO preference_signals(captured_at, signal_type, target_kind, target_id, user_reason) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (now, signal_type, kind, tid, req.reason),
+                )
+            except Exception as exc:
+                print(f"[dashboard] preference signal write failed: {exc}")
+
+            # 2. Ledger user_action update — only for kind=ledger
+            if kind == "ledger" and tid.startswith("ledger_"):
+                user_action_map = {"good": "adopted", "ok": "ignored", "bad": "rejected"}
+                try:
+                    from agent.ledger import update_user_action  # noqa: PLC0415
+                    ledger_row_id = int(tid.replace("ledger_", ""))
+                    update_user_action(ledger_row_id, user_action_map[rating], req.reason or rating)
+                except Exception as exc:
+                    print(f"[dashboard] update_user_action failed for {tid}: {exc}")
+
+            # 3. Dismiss from inbox so the card disappears
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO inbox_dismissals (kind, target_id, dismissed_at, reason) VALUES (?, ?, ?, ?)",
+                    (kind, tid, now, f"rated_{rating}"),
+                )
+                conn.commit()
+            except Exception as exc:
+                conn.close()
+                raise HTTPException(status_code=500, detail=f"inbox_dismissals write failed: {exc}")
+            conn.close()
+            return JSONResponse({"ok": True, "action": "rate_inbox_item", "kind": kind, "id": tid, "rating": rating})
 
         elif req.action == "dismiss_inbox_item":
             # Generic soft-dismiss for any inbox item. Stored in a separate
