@@ -2346,10 +2346,30 @@ function renderProjects() {
     block.innerHTML = '<div class="empty">No projects match the current filters.</div>';
     return;
   }
-  projects.forEach(p => block.appendChild(renderProjectRow(p, students)));
+  const journals = data.journals || [];
+  // Column header strip (matches renderProjectRow grid)
+  const head = document.createElement('div');
+  head.style.display = 'grid';
+  head.style.gridTemplateColumns = 'auto minmax(240px,2fr) auto minmax(110px,auto) minmax(170px,auto) minmax(170px,auto) minmax(170px,auto) auto';
+  head.style.gap = '10px';
+  head.style.alignItems = 'center';
+  head.style.padding = '6px 10px';
+  head.style.borderBottom = '1px solid var(--rule)';
+  head.style.fontFamily = 'var(--font-mono)';
+  head.style.fontSize = '11px';
+  head.style.color = 'var(--ink-faint)';
+  head.style.textTransform = 'uppercase';
+  head.style.letterSpacing = '0.06em';
+  ['Wiki', 'Project', 'Type', 'Status', 'Stage', 'Lead', 'Target journal', ''].forEach(label => {
+    const c = document.createElement('span');
+    c.textContent = label;
+    head.appendChild(c);
+  });
+  block.appendChild(head);
+  projects.forEach(p => block.appendChild(renderProjectRow(p, students, journals)));
 }
 
-function renderProjectRow(p, students) {
+function renderProjectRow(p, students, journals) {
   const row = document.createElement('div');
   row.className = 'project-row status-' + (p.status || 'active');
   row.dataset.projectId = p.id;
@@ -2357,11 +2377,24 @@ function renderProjectRow(p, students) {
   const header = document.createElement('div');
   header.className = 'project-header';
   header.style.display = 'grid';
-  header.style.gridTemplateColumns = 'minmax(220px,2fr) minmax(140px,1fr) auto auto minmax(150px,1fr) auto';
-  header.style.gap = '12px';
+  header.style.gridTemplateColumns = 'auto minmax(240px,2fr) auto minmax(110px,auto) minmax(170px,auto) minmax(170px,auto) minmax(170px,auto) auto';
+  header.style.gap = '10px';
   header.style.alignItems = 'center';
 
-  // Name + next-action warning
+  // 1. Include checkbox (controls public projects-page visibility)
+  const incWrap = document.createElement('div');
+  incWrap.title = 'Include on the public projects page';
+  incWrap.style.display = 'flex'; incWrap.style.justifyContent = 'center';
+  const incBox = document.createElement('input');
+  incBox.type = 'checkbox';
+  incBox.checked = !!p.include_in_wiki;
+  incBox.style.cursor = 'pointer';
+  incBox.addEventListener('change', () => saveProjectField(p.id, {include_in_wiki: incBox.checked ? 1 : 0}));
+  incWrap.appendChild(incBox);
+  header.appendChild(incWrap);
+
+  // 2. Name + warning + activity chips
+  const nameCell = document.createElement('div');
   const nameWrap = document.createElement('div');
   nameWrap.style.cursor = 'pointer';
   const nameEl = document.createElement('span');
@@ -2376,102 +2409,84 @@ function renderProjectRow(p, students) {
     nameWrap.appendChild(warn);
   }
   nameWrap.addEventListener('click', () => toggleProjectExpanded(row, p, students));
-  header.appendChild(nameWrap);
+  nameCell.appendChild(nameWrap);
 
-  // Lead
-  const leadEl = document.createElement('div');
-  leadEl.className = 'project-lead';
-  leadEl.style.fontFamily = 'var(--font-mono)'; leadEl.style.fontSize = '12px';
-  leadEl.style.color = 'var(--ink-dim)';
-  leadEl.textContent = p.lead_name ? `Lead: ${p.lead_name}` : 'Lead: (unassigned)';
-  header.appendChild(leadEl);
+  const ra = p.recent_activity || {};
+  const chips = [];
+  if (ra.unreviewed_drafts > 0) chips.push([`📝 ${ra.unreviewed_drafts}`, '#b85c00', `${ra.unreviewed_drafts} unreviewed drafts`]);
+  if (ra.pending_hypotheses > 0) chips.push([`🧪 ${ra.pending_hypotheses}`, '#2d7a7a', `${ra.pending_hypotheses} pending hypotheses`]);
+  if (ra.literature_notes_last_30d > 0) chips.push([`📚 ${ra.literature_notes_last_30d}`, '#3a5d9a', `${ra.literature_notes_last_30d} literature notes (30d)`]);
+  if (ra.ledger_entries_last_30d > 0) chips.push([`📊 ${ra.ledger_entries_last_30d}`, 'var(--ink-faint)', `${ra.ledger_entries_last_30d} ledger entries (30d)`]);
+  if (p.days_since_touch != null) {
+    const d = p.days_since_touch;
+    const label = d < 1 ? 'today' : d < 14 ? `${d}d` : d < 60 ? `${Math.round(d/7)}w` : `${Math.round(d/30)}mo`;
+    const color = d < 7 ? '#2d7a2d' : d < 30 ? 'var(--ink-faint)' : '#c53030';
+    chips.push([`✎ ${label}`, color, `Last touched ${label}`]);
+  }
+  if (chips.length > 0) {
+    const chipsDiv = document.createElement('div');
+    chipsDiv.style.display = 'flex'; chipsDiv.style.gap = '4px'; chipsDiv.style.flexWrap = 'wrap';
+    chipsDiv.style.marginTop = '4px';
+    chips.forEach(([text, color, title]) => {
+      const c = document.createElement('span');
+      c.style.fontFamily = 'var(--font-mono)'; c.style.fontSize = '10px';
+      c.style.padding = '1px 5px'; c.style.background = 'var(--paper-sunk)';
+      c.style.border = '1px solid var(--rule)'; c.style.borderRadius = '3px';
+      c.style.color = color;
+      c.textContent = text; c.title = title;
+      chipsDiv.appendChild(c);
+    });
+    nameCell.appendChild(chipsDiv);
+  }
+  header.appendChild(nameCell);
 
-  // Type pill
+  // 3. Type pill
   const ptype = p.project_type || null;
   const typePill = document.createElement('span');
   typePill.className = 'project-type-pill ' + (ptype ? 'type-' + ptype : 'type-none');
   typePill.textContent = ptype || '(no type)';
   header.appendChild(typePill);
 
-  // Conditional paper/grant status badge
-  const _paperStatusLabels = {
-    submitted: 'Submitted', under_review: 'Under review',
-    revision_resubmit: 'Revision (resubmit)', revision_new_journal: 'Revision (new journal)',
-    accepted: 'Accepted', in_press: 'In press', published: 'Published'
-  };
-  const _grantStatusLabels = {
-    in_prep: 'In prep', submitted: 'Submitted', under_review: 'Under review',
-    awarded: 'Awarded', declined: 'Declined', deferred: 'Deferred'
-  };
-  if (ptype === 'paper' && (p.paper_status || null)) {
-    const badge = document.createElement('span');
-    badge.className = 'proj-type-status-badge';
-    const statusLabel = _paperStatusLabels[p.paper_status] || p.paper_status;
-    badge.textContent = p.journal ? `${p.journal} · ${statusLabel}` : statusLabel;
-    header.appendChild(badge);
-  } else if (ptype === 'grant' && (p.grant_status || null)) {
-    const badge = document.createElement('span');
-    badge.className = 'proj-type-status-badge';
-    const statusLabel = _grantStatusLabels[p.grant_status] || p.grant_status;
-    let prefix = p.agency || '';
-    if (p.agency && p.program) prefix = `${p.agency} ${p.program}`;
-    badge.textContent = prefix ? `${prefix} · ${statusLabel}` : statusLabel;
-    header.appendChild(badge);
+  // 4. Status dropdown
+  header.appendChild(projSelect(p.id, 'status', ['active','paused','done','archived'], p.status || 'active'));
+
+  // 5. Stage dropdown (lifecycle)
+  header.appendChild(projStageSelect(p.id, p.stage || ''));
+
+  // 6. Lead dropdown
+  header.appendChild(projLeadSelect(p.id, p.lead_student_id, p.lead_name, students));
+
+  // 7. Target-journal dropdown (paper-type projects only; placeholder otherwise)
+  if (ptype === 'paper') {
+    header.appendChild(projJournalSelect(p.id, p.journal || '', journals));
   } else {
-    // placeholder cell to keep grid alignment
-    header.appendChild(document.createElement('span'));
+    const ph = document.createElement('span');
+    ph.style.color = 'var(--ink-faint)';
+    ph.style.fontSize = '11px';
+    ph.style.fontFamily = 'var(--font-mono)';
+    ph.style.textAlign = 'center';
+    ph.textContent = '—';
+    header.appendChild(ph);
   }
 
-  // Status pill
-  const statusPill = document.createElement('span');
-  statusPill.className = 'project-status-pill st-' + (p.status || 'active');
-  statusPill.textContent = p.status || 'active';
-  header.appendChild(statusPill);
-
-  // Activity chips
-  const act = document.createElement('div');
-  act.className = 'project-activity';
-  act.style.display = 'flex'; act.style.gap = '6px'; act.style.flexWrap = 'wrap';
-  const ra = p.recent_activity || {};
-  const chips = [];
-  if (ra.unreviewed_drafts > 0) chips.push([`📝 ${ra.unreviewed_drafts} drafts`, '#b85c00']);
-  if (ra.pending_hypotheses > 0) chips.push([`🧪 ${ra.pending_hypotheses} hyp`, '#2d7a7a']);
-  if (ra.literature_notes_last_30d > 0) chips.push([`📚 ${ra.literature_notes_last_30d} lit`, '#3a5d9a']);
-  if (ra.ledger_entries_last_30d > 0) chips.push([`📊 ${ra.ledger_entries_last_30d} ledger`, 'var(--ink-faint)']);
-  if (p.days_since_touch != null) {
-    const d = p.days_since_touch;
-    const label = d < 1 ? 'today' : d < 14 ? `${d}d` : d < 60 ? `${Math.round(d/7)}w` : `${Math.round(d/30)}mo`;
-    const color = d < 7 ? '#2d7a2d' : d < 30 ? 'var(--ink-faint)' : '#c53030';
-    chips.push([`✎ ${label}`, color]);
-  }
-  chips.forEach(([text, color]) => {
-    const c = document.createElement('span');
-    c.style.fontFamily = 'var(--font-mono)'; c.style.fontSize = '11px';
-    c.style.padding = '2px 6px'; c.style.background = 'var(--paper-sunk)';
-    c.style.border = '1px solid var(--rule)'; c.style.borderRadius = '3px';
-    c.style.color = color;
-    c.textContent = text;
-    act.appendChild(c);
-  });
-  header.appendChild(act);
-
-  // Actions
+  // 8. Actions
   const actions = document.createElement('div');
   actions.style.display = 'flex'; actions.style.gap = '4px';
   const editBtn = document.createElement('button');
-  editBtn.className = 'btn'; editBtn.textContent = '✎ Edit';
+  editBtn.className = 'btn'; editBtn.textContent = '✎';
+  editBtn.title = 'Open detail editor';
   editBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleProjectExpanded(row, p, students); });
   actions.appendChild(editBtn);
   if (p.linked_artifact_url) {
     const a = document.createElement('a');
     a.href = p.linked_artifact_url; a.target = '_blank'; a.rel = 'noopener';
-    a.className = 'btn'; a.textContent = '↗ Doc';
+    a.className = 'btn'; a.textContent = '↗'; a.title = 'Open linked doc';
     actions.appendChild(a);
   }
   if (p.data_dir_url) {
     const a = document.createElement('a');
     a.href = p.data_dir_url; a.target = '_blank'; a.rel = 'noopener';
-    a.className = 'btn'; a.textContent = '🗂 Data';
+    a.className = 'btn'; a.textContent = '🗂'; a.title = 'Open data dir';
     actions.appendChild(a);
   }
   header.appendChild(actions);
@@ -2612,6 +2627,119 @@ function projSelect(id, field, options, current) {
     el.appendChild(op);
   });
   el.addEventListener('change', () => saveProjectField(id, {[field]: el.value}));
+  return el;
+}
+
+const _STAGE_LABELS = {
+  '': '(no stage)',
+  'in_development': 'In development',
+  'data_collection': 'Data collection',
+  'finalizing_manuscript': 'Finalizing manuscript',
+  'under_review': 'Under review',
+  'published': 'Published',
+};
+const _STAGE_ORDER = ['', 'in_development', 'data_collection', 'finalizing_manuscript', 'under_review', 'published'];
+
+function projStageSelect(id, current) {
+  const el = document.createElement('select'); el.className = 'select';
+  _STAGE_ORDER.forEach(v => {
+    const op = document.createElement('option');
+    op.value = v; op.textContent = _STAGE_LABELS[v];
+    if (v === current) op.selected = true;
+    el.appendChild(op);
+  });
+  el.addEventListener('change', () => {
+    saveProjectField(id, {stage: el.value || null});
+    // 'published' filters the row off the public projects page; reload to reflect counts
+    if (el.value === 'published') setTimeout(() => loadProjects(), 700);
+  });
+  return el;
+}
+
+function projLeadSelect(id, currentStudentId, currentName, students) {
+  const el = document.createElement('select'); el.className = 'select';
+  const unassigned = document.createElement('option');
+  unassigned.value = ''; unassigned.textContent = '(unassigned)';
+  if (!currentStudentId && !currentName) unassigned.selected = true;
+  el.appendChild(unassigned);
+  let matchedStudent = false;
+  (students || []).forEach(s => {
+    const o = document.createElement('option');
+    o.value = 'sid:' + s.id;
+    o.textContent = `${s.full_name} (${s.role})`;
+    if (currentStudentId === s.id) { o.selected = true; matchedStudent = true; }
+    el.appendChild(o);
+  });
+  const heath = document.createElement('option');
+  heath.value = 'name:Heath'; heath.textContent = 'Heath';
+  if (!matchedStudent && (currentName || '').toLowerCase() === 'heath') heath.selected = true;
+  el.appendChild(heath);
+  // Custom name fallback (lead_name set, not a known student, not Heath)
+  if (!matchedStudent && currentName && currentName.toLowerCase() !== 'heath') {
+    const custom = document.createElement('option');
+    custom.value = 'name:' + currentName;
+    custom.textContent = currentName + ' (custom)';
+    custom.selected = true;
+    el.appendChild(custom);
+  }
+  const other = document.createElement('option');
+  other.value = '__custom__'; other.textContent = '(other — write-in)';
+  el.appendChild(other);
+  el.addEventListener('change', () => {
+    const v = el.value;
+    if (v === '__custom__') {
+      const name = prompt('Lead name?');
+      if (name && name.trim()) {
+        saveProjectField(id, {lead_student_id: null, lead_name: name.trim()});
+        setTimeout(() => loadProjects(), 700);
+      } else {
+        el.value = '';
+      }
+      return;
+    }
+    if (v === '') saveProjectField(id, {lead_student_id: null, lead_name: ''});
+    else if (v.startsWith('sid:')) saveProjectField(id, {lead_student_id: parseInt(v.slice(4),10), lead_name: ''});
+    else if (v.startsWith('name:')) saveProjectField(id, {lead_student_id: null, lead_name: v.slice(5)});
+  });
+  return el;
+}
+
+function projJournalSelect(id, current, journals) {
+  const el = document.createElement('select'); el.className = 'select';
+  const empty = document.createElement('option');
+  empty.value = ''; empty.textContent = '(no journal)';
+  if (!current) empty.selected = true;
+  el.appendChild(empty);
+  const known = journals || [];
+  known.forEach(j => {
+    const o = document.createElement('option');
+    o.value = j; o.textContent = j;
+    if (j === current) o.selected = true;
+    el.appendChild(o);
+  });
+  if (current && !known.includes(current)) {
+    const custom = document.createElement('option');
+    custom.value = current; custom.textContent = current + ' (custom)';
+    custom.selected = true;
+    el.appendChild(custom);
+  }
+  const other = document.createElement('option');
+  other.value = '__custom__'; other.textContent = 'Other (write-in)…';
+  el.appendChild(other);
+  el.addEventListener('change', () => {
+    const v = el.value;
+    if (v === '__custom__') {
+      const name = prompt('Journal name?');
+      if (name && name.trim()) {
+        saveProjectField(id, {journal: name.trim()});
+        setTimeout(() => loadProjects(), 700);
+      } else {
+        el.value = current || '';
+      }
+      return;
+    }
+    saveProjectField(id, {journal: v || null});
+  });
   return el;
 }
 
@@ -2845,15 +2973,27 @@ async function loadPrereg() {
    INBOX DETAIL MODAL
    ══════════════════════════════════════════════════════════════════════════ */
 
-/* Returns (or lazily creates) the single modal DOM node. */
+/* Returns the single modal DOM node, ensuring it has the inner box.
+ *
+ * Idempotent. Handles three states:
+ *   1. No #inboxDetailModal exists      → create it + the inner #inboxDetailBox
+ *   2. #inboxDetailModal exists, has box → return as-is (re-applies styles defensively)
+ *   3. #inboxDetailModal exists, NO box  → add the box (this is the case where the
+ *      page's HTML preloads an empty placeholder div with id="inboxDetailModal";
+ *      previously this caused getElementById('inboxDetailBox') to return null and
+ *      blow up openInboxModal — silent failure of the entire feedback loop).
+ */
 function _getInboxModal() {
   let m = document.getElementById('inboxDetailModal');
-  if (m) return m;
-
-  m = document.createElement('div');
-  m.id = 'inboxDetailModal';
+  const created = !m;
+  if (created) {
+    m = document.createElement('div');
+    m.id = 'inboxDetailModal';
+    document.body.appendChild(m);
+  }
+  // Apply outer modal styles unconditionally — idempotent and inexpensive.
   m.style.cssText = [
-    'display:none',
+    'display:none',          // initial; openInboxModal flips to 'flex' on show
     'position:fixed',
     'inset:0',
     'z-index:9000',
@@ -2864,24 +3004,30 @@ function _getInboxModal() {
     'overflow-y:auto',
   ].join(';');
 
-  const box = document.createElement('div');
-  box.id = 'inboxDetailBox';
-  box.style.cssText = [
-    'background:var(--paper-raised,#fff)',
-    'border:1px solid var(--rule,#d8ccba)',
-    'border-radius:8px',
-    'width:100%',
-    'max-width:760px',
-    'padding:24px 28px',
-    'position:relative',
-    'box-shadow:0 8px 32px rgba(0,0,0,0.18)',
-  ].join(';');
-  m.appendChild(box);
+  // Ensure the inner box exists.
+  let box = m.querySelector('#inboxDetailBox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'inboxDetailBox';
+    box.style.cssText = [
+      'background:var(--paper-raised,#fff)',
+      'border:1px solid var(--rule,#d8ccba)',
+      'border-radius:8px',
+      'width:100%',
+      'max-width:760px',
+      'padding:24px 28px',
+      'position:relative',
+      'box-shadow:0 8px 32px rgba(0,0,0,0.18)',
+    ].join(';');
+    m.appendChild(box);
+  }
 
-  // Close on backdrop click
-  m.addEventListener('click', (e) => { if (e.target === m) closeInboxModal(); });
+  // Attach the backdrop-click listener exactly once.
+  if (!m.__backdropClickWired) {
+    m.addEventListener('click', (e) => { if (e.target === m) closeInboxModal(); });
+    m.__backdropClickWired = true;
+  }
 
-  document.body.appendChild(m);
   return m;
 }
 

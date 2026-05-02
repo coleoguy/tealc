@@ -105,8 +105,10 @@
     <span>Data refreshed every 30s</span>
   </footer>
 
-  <!-- Inbox detail modal — populated dynamically by openInboxModal() in dashboard.js -->
-  <div id="inboxDetailModal" style="display:none"></div>
+  <!-- Inbox detail modal is created lazily by _getInboxModal() in dashboard.js
+       on first openInboxModal() call. (A previous empty placeholder here caused
+       _getInboxModal()'s early-return-if-exists check to skip box creation,
+       breaking every Expand click — fixed 2026-05-02.) -->
 
   <script src="/public/dashboard.js" defer></script>
 </body>
