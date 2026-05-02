@@ -195,10 +195,8 @@ def critic_pass(draft_text: str, rubric_name: str = "default") -> dict:
     """Run an adversarial critic pass on draft_text using the named rubric.
 
     The model is selected via ``model_router.choose_model("critic_pass")``
-    (which routes to OPUS per ``_OPUS_TASKS``) rather than hard-coded.
-    Effort tier defaults to "medium" — model_router's EFFORT_TIERS uses
-    "opus_critic" as the key for xhigh, but routing uses "critic_pass";
-    that naming inconsistency is a model_router bug to clean up later.
+    (which routes to OPUS per ``_OPUS_TASKS`` and effort tier ``xhigh`` per
+    ``EFFORT_TIERS``) rather than hard-coded.
 
     Returns a dict with keys: score, unsupported_claims, missing_citations,
     hype_flags, calibration_notes, overall_notes, model, tokens_in, tokens_out,

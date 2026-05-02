@@ -238,7 +238,15 @@ def run_subagent(
     allowed = allowed_tools if allowed_tools is not None else DEFAULT_ALLOWED_TOOLS
     tool_specs, name_to_fn = _build_tool_specs(allowed)
 
-    system = _SUBAGENT_SYSTEM + (("\n\n" + extra_system.strip()) if extra_system else "")
+    # Build system as a list with cache_control on the static _SUBAGENT_SYSTEM
+    # block so parallel sub-agent dispatch gets prompt-cache hits across calls
+    # within the 5-minute ephemeral TTL. The dynamic `extra_system` is kept
+    # separate (un-cached) so per-task variation doesn't bust the cache.
+    system: list[dict] = [
+        {"type": "text", "text": _SUBAGENT_SYSTEM, "cache_control": {"type": "ephemeral"}},
+    ]
+    if extra_system:
+        system.append({"type": "text", "text": extra_system.strip()})
 
     client = _Anthropic()
     messages: list[dict] = [{"role": "user", "content": task}]

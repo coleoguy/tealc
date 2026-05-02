@@ -141,7 +141,7 @@ class TestChooseModelReturnsModelChoice(unittest.TestCase):
             "run_formal_hypothesis_pass",
             "formal_hypothesis_pass",
             "pre_submission_review",
-            "opus_critic",
+            "critic_pass",
             "hypothesis_critique",
             "weekly_review_critic",
         ]:

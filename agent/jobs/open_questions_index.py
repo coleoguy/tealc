@@ -232,10 +232,12 @@ def _run() -> str:
     now_iso = now.isoformat()
 
     if not proposals:
-        # Write an empty page
-        rendered = _render_index({}, cols, now_iso)
-        _write_output(rendered)
-        return "noop: hypothesis_proposals has zero matching rows; wrote empty page"
+        # Empty-input guard: do NOT publish a blank page to the live website.
+        # Pre-fix behavior wrote an empty rendered page when hypothesis_proposals
+        # had zero matching rows; reviewers / readers saw a noop on the public
+        # site. Better to leave the previously-published page in place (if any)
+        # and surface the noop in job_runs / briefings.
+        return "noop: hypothesis_proposals has zero matching rows; skipping publish"
 
     # Group by status
     grouped: dict[str, list[dict]] = {}

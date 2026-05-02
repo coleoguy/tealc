@@ -8,8 +8,14 @@ python -m evaluations.export_batch \\
     --domain chromosomal_evolution \\
     --since 2025-01-01 \\
     --until 2025-06-30 \\
-    --min-score 3 \\
     --out evaluations/batches/
+
+Note on ``--min-score``: the flag exists for ad-hoc internal exports, but
+**do NOT pass it for AI-vs-PhD benchmark batches**. Filtering output by
+TEALC's own critic score before sending to blinded human reviewers stacks
+the deck against the human-arm comparison; peer reviewers will dismantle
+the methodology. The default (None) sends unfiltered output and lets the
+human reviewers form their own judgment.
 """
 
 from __future__ import annotations

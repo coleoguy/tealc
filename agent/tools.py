@@ -7131,11 +7131,6 @@ def timetree_age_distribution(taxon_a: str, taxon_b: str) -> dict:
 def list_pending_preregs() -> str:
     """List preregistrations awaiting T+7 adjudication."""
     import sqlite3, json as _json
-    try:
-        from agent.scheduler import DB_PATH  # noqa: PLC0415
-    except ImportError:
-        from pathlib import Path
-        DB_PATH = str(Path(__file__).parent.parent / "data" / "agent.db")
     conn = sqlite3.connect(_db_path())
     rows = conn.execute(
         "SELECT id, hypothesis_md, prereg_published_at, prereg_test_json FROM hypothesis_proposals "
@@ -7155,11 +7150,6 @@ def list_pending_preregs() -> str:
 def get_prereg_outcome(hypothesis_id: int) -> str:
     """Full prereg + verdict for a hypothesis_proposals row."""
     import sqlite3, json as _json
-    try:
-        from agent.scheduler import DB_PATH  # noqa: PLC0415
-    except ImportError:
-        from pathlib import Path
-        DB_PATH = str(Path(__file__).parent.parent / "data" / "agent.db")
     conn = sqlite3.connect(_db_path())
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM hypothesis_proposals WHERE id=?", (hypothesis_id,)).fetchone()
@@ -7178,11 +7168,6 @@ def get_prereg_outcome(hypothesis_id: int) -> str:
 def list_reviewer_invitations(status: str = "") -> str:
     """List reviewer_invitations rows. Optional status filter ('draft'|'sent'|'replied'|'expired')."""
     import sqlite3, json as _json
-    try:
-        from agent.scheduler import DB_PATH  # noqa: PLC0415
-    except ImportError:
-        from pathlib import Path
-        DB_PATH = str(Path(__file__).parent.parent / "data" / "agent.db")
     conn = sqlite3.connect(_db_path())
     if status:
         rows = conn.execute("SELECT id, reviewer_pseudonym, domain, status, sla_iso, sent_at FROM reviewer_invitations WHERE status=? ORDER BY created_at DESC", (status,)).fetchall()
@@ -7195,11 +7180,6 @@ def list_reviewer_invitations(status: str = "") -> str:
 def get_reviewer_correlation(domain: str = "") -> str:
     """Latest Opus-critic-vs-human Spearman correlations. Optional domain filter."""
     import sqlite3, json as _json
-    try:
-        from agent.scheduler import DB_PATH  # noqa: PLC0415
-    except ImportError:
-        from pathlib import Path
-        DB_PATH = str(Path(__file__).parent.parent / "data" / "agent.db")
     conn = sqlite3.connect(_db_path())
     if domain:
         rows = conn.execute("SELECT computed_at, domain, dimension, n_pairs, spearman_r, bootstrap_ci_lo, bootstrap_ci_hi FROM reviewer_correlations WHERE domain=? ORDER BY computed_at DESC LIMIT 20", (domain,)).fetchall()

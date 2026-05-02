@@ -42,7 +42,7 @@ EFFORT_TIERS: "dict[str, str]" = {
     "run_formal_hypothesis_pass": "xhigh",
     "formal_hypothesis_pass": "xhigh",
     "pre_submission_review": "xhigh",
-    "opus_critic": "xhigh",
+    "critic_pass": "xhigh",
     "hypothesis_critique": "xhigh",
     "weekly_review_critic": "xhigh",
     # high — default chat and major drafting / analysis jobs
