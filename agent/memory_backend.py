@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 from urllib.parse import unquote
@@ -57,6 +59,9 @@ _LINE_NUMBER_WIDTH = 6
 # Tool spec dict to pass directly to messages.create tools list
 MEMORY_TOOL_SPEC: dict = {"type": "memory_20250818", "name": "memory"}
 
+# Git tracking — git ops log lives next to the memories dir, in AppSupport
+_GIT_LOG_PATH: Path = STORAGE_ROOT.parent / "memory-git.log"
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -65,6 +70,104 @@ MEMORY_TOOL_SPEC: dict = {"type": "memory_20250818", "name": "memory"}
 def _ensure_storage_root() -> None:
     """Create the storage root directory if it does not yet exist."""
     STORAGE_ROOT.mkdir(parents=True, exist_ok=True, mode=_DIR_MODE)
+
+
+# ---------------------------------------------------------------------------
+# Git auto-commit layer (F11)
+# ---------------------------------------------------------------------------
+# After every successful memory mutation, the change is committed to a Git
+# repo rooted at STORAGE_ROOT. Unlocks `git log memories/projects/p_002/
+# progress.md` for temporal queries — "what did we know about this project
+# in January?", "what was the last state before I cleared it?", and so on.
+#
+# Best-effort: a failed git operation never raises (the file write already
+# succeeded; git is opportunistic provenance). Failures are appended to
+# `~/Library/Application Support/tealc/memory-git.log` for later forensics.
+#
+# The repo is auto-initialized on first mutation (idempotent — fast no-op
+# if `.git` already exists). Local-only `user.name`/`user.email` are set
+# so commits don't fall back to the Mac user's global git identity.
+
+def _git(*args: str) -> tuple[int, str, str]:
+    """Run `git <args>` in STORAGE_ROOT. Returns (rc, stdout, stderr).
+
+    Captures output, applies a 10s timeout. Returns rc=-1 on timeout / any
+    non-CalledProcessError exception, with stderr containing the message.
+    """
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=str(STORAGE_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        return result.returncode, result.stdout or "", result.stderr or ""
+    except Exception as exc:
+        return -1, "", str(exc)
+
+
+def _log_git(msg: str) -> None:
+    """Append a timestamped line to memory-git.log. Best-effort; never raises."""
+    try:
+        ts = datetime.now(timezone.utc).isoformat()
+        with open(_GIT_LOG_PATH, "a", encoding="utf-8") as fh:
+            fh.write(f"{ts} {msg}\n")
+    except Exception:
+        pass
+
+
+def _ensure_git_repo() -> bool:
+    """Initialize STORAGE_ROOT as a Git repo if not already.
+
+    Returns True if the repo is usable (already-init or freshly init), False
+    if init failed. Idempotent and fast: ~50us per call once initialized.
+    """
+    if not STORAGE_ROOT.exists():
+        return False
+    if (STORAGE_ROOT / ".git").exists():
+        return True
+    rc, _, err = _git("init", "-q", "-b", "main")
+    if rc != 0:
+        _log_git(f"git init failed: {err}")
+        return False
+    # Repo-local identity (does not pollute global git config).
+    _git("config", "user.name", "TEALC")
+    _git("config", "user.email", "tealc@local")
+    # Capture any pre-existing files as a baseline commit so subsequent
+    # `git blame` / `git log` against them works from day one.
+    _git("add", "-A")
+    rc, _, err = _git(
+        "commit", "-q", "--allow-empty", "-m", "init: TEALC memory git tracking"
+    )
+    if rc != 0:
+        _log_git(f"initial commit failed: {err}")
+    _log_git("git repo initialized at STORAGE_ROOT")
+    return True
+
+
+def _commit_memory_change(operation: str, path: str = "", summary: str = "") -> None:
+    """Stage all changes and commit with a structured message. Best-effort."""
+    try:
+        if not _ensure_git_repo():
+            return
+        rc, _, err = _git("add", "-A")
+        if rc != 0:
+            _log_git(f"add failed ({operation} {path}): {err}")
+            return
+        msg = operation
+        if path:
+            msg += f" {path}"
+        if summary:
+            msg += f"\n\n{summary}"
+        # --allow-empty so a no-op write (e.g. rewriting identical content)
+        # still records the intent; cheaper than detecting whether content
+        # actually changed and clearer in the log.
+        rc, _, err = _git("commit", "-q", "--allow-empty", "-m", msg)
+        if rc != 0:
+            _log_git(f"commit failed ({msg!r}): {err}")
+    except Exception as exc:
+        _log_git(f"unexpected error in commit hook: {exc}")
 
 
 def _validate_path(path: str) -> Path:
@@ -299,6 +402,7 @@ class TealcMemoryTool(BetaAbstractMemoryTool):
         except FileExistsError as exc:
             raise ToolError(f"File {command.path} already exists") from exc
 
+        _commit_memory_change("create", command.path)
         return f"File created successfully at: {command.path}"
 
     # ------------------------------------------------------------------
@@ -350,6 +454,11 @@ class TealcMemoryTool(BetaAbstractMemoryTool):
             f"{str(ln).rjust(_LINE_NUMBER_WIDTH)}\t{new_lines[ln - 1]}"
             for ln in range(ctx_start + 1, ctx_end + 1)
         ]
+        _commit_memory_change(
+            "str_replace",
+            command.path,
+            summary=f"replaced 1 occurrence near line {changed_line_idx + 1}",
+        )
         return (
             "The memory file has been edited. "
             "Here is the snippet showing the change (with line numbers):\n"
@@ -385,6 +494,11 @@ class TealcMemoryTool(BetaAbstractMemoryTool):
 
         _check_size(new_content, command.path)
         _atomic_write(full, new_content)
+        _commit_memory_change(
+            "insert",
+            command.path,
+            summary=f"inserted at line {command.insert_line}",
+        )
         return f"The file {command.path} has been edited."
 
     # ------------------------------------------------------------------
@@ -406,6 +520,7 @@ class TealcMemoryTool(BetaAbstractMemoryTool):
         except FileNotFoundError as exc:
             raise ToolError(f"The path {command.path} does not exist") from exc
 
+        _commit_memory_change("delete", command.path)
         return f"Successfully deleted {command.path}"
 
     # ------------------------------------------------------------------
@@ -425,17 +540,41 @@ class TealcMemoryTool(BetaAbstractMemoryTool):
         except FileNotFoundError as exc:
             raise ToolError(f"The path {command.old_path} does not exist") from exc
 
+        _commit_memory_change(
+            "rename", f"{command.old_path} -> {command.new_path}"
+        )
         return f"Successfully renamed {command.old_path} to {command.new_path}"
 
     # ------------------------------------------------------------------
     # clear_all_memory
     # ------------------------------------------------------------------
     def clear_all_memory(self) -> str:
-        """Remove all memory files and re-create the empty storage root."""
+        """Remove all memory files but preserve git history.
+
+        Pre-F11 behavior wiped the entire STORAGE_ROOT (including any future
+        .git dir). Now we delete every entry EXCEPT .git, then commit the
+        cleared state. The previous memory state remains recoverable via
+        ``git checkout HEAD~1 -- .`` until manually pruned.
+        """
         if STORAGE_ROOT.exists():
-            shutil.rmtree(STORAGE_ROOT)
-        STORAGE_ROOT.mkdir(parents=True, exist_ok=True, mode=_DIR_MODE)
-        return "All memory cleared"
+            for entry in STORAGE_ROOT.iterdir():
+                if entry.name == ".git":
+                    continue
+                try:
+                    if entry.is_file() or entry.is_symlink():
+                        entry.unlink()
+                    elif entry.is_dir():
+                        shutil.rmtree(entry)
+                except Exception:
+                    # Best-effort: keep going on individual failures.
+                    pass
+        else:
+            STORAGE_ROOT.mkdir(parents=True, exist_ok=True, mode=_DIR_MODE)
+        _commit_memory_change(
+            "clear_all_memory",
+            summary="all memory files removed; previous state preserved in git history",
+        )
+        return "All memory cleared (git history preserved for recovery)"
 
 
 # ---------------------------------------------------------------------------
