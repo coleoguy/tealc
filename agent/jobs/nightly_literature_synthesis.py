@@ -54,16 +54,33 @@ _ABSTRACT_MAX_CHARS = 2000
 # ---------------------------------------------------------------------------
 # Sonnet system prompt for findings extraction
 # ---------------------------------------------------------------------------
-_EXTRACTION_SYSTEM = (
-    "You extract findings from a scientific paper for a research project. "
-    "Output JSON: "
-    '{"findings_md": "<3-5 bullet points: the paper\'s specific empirical or theoretical claims>", '
-    '"relevance": "<2 sentences explaining why this matters to the project\'s hypothesis>", '
-    '"should_cite": true|false}. '
-    "The project's current hypothesis and keywords are in the user message. "
-    "If the paper is off-topic despite a keyword match, say so honestly: findings_md should still "
-    "extract the paper's claims, but relevance should say "
-    "'weak match — paper is about X, project is about Y'. Output JSON only."
+from agent.jobs import SCIENTIST_MODE  # noqa: E402
+
+_EXTRACTION_SYSTEM = SCIENTIST_MODE + "\n\n" + (
+    "You read one scientific paper and extract findings for a research "
+    "project's literature notes. These notes feed downstream into hypothesis "
+    "generation and grant drafting, so accuracy matters more than coverage.\n\n"
+    "Output JSON:\n"
+    "{\n"
+    '  "findings_md": "<3-5 bullets — the paper\'s specific empirical or '
+    'theoretical claims. For each: the n / sample, the test, the effect '
+    'direction, and any caveat the authors named themselves>",\n'
+    '  "claims_vs_findings": "<1-2 sentences distinguishing what the paper '
+    'SHOWS from what it CLAIMS or SPECULATES, where these differ>",\n'
+    '  "correlation_vs_causation": "<1 sentence — if the paper claims a '
+    'causal effect, name the design that supports it (intervention, IV, '
+    'natural experiment, longitudinal); otherwise note the relationship '
+    'is correlational>",\n'
+    '  "limitations": "<1-2 sentences: paper\'s own acknowledged limitations '
+    'PLUS one you noticed>",\n'
+    '  "relevance": "<2 sentences — explicit connection to the project\'s '
+    "hypothesis. If weak, say so honestly: 'paper is about X, project is "
+    "about Y, weak match'.>\",\n"
+    '  "should_cite": true|false,\n'
+    '  "cite_reason": "<1 sentence>"\n'
+    "}\n\n"
+    "Off-topic-but-keyword-matched is fine to flag explicitly. The project's "
+    "current hypothesis and keywords are in the user message. Output JSON only."
 )
 
 
@@ -212,10 +229,11 @@ def job() -> str:
     """For each active research project, pull recent papers and extract findings."""
 
     # 1. Time guard only — scheduled midnight Central. Idle-class was too strict.
+    # FORCE_RUN=1 bypasses for chat-driven manual triggers.
     from datetime import datetime as _dt  # noqa: PLC0415
     from zoneinfo import ZoneInfo  # noqa: PLC0415
     hour = _dt.now(ZoneInfo("America/Chicago")).hour
-    if 8 <= hour < 22:
+    if 8 <= hour < 22 and os.environ.get("FORCE_RUN") != "1":
         return f"skipped: working-hours guard (hour={hour})"
 
     # 2. Pull active research projects.

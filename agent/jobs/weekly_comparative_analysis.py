@@ -74,10 +74,24 @@ Do NOT modify Heath's source data files; only read them. Save plots and tables t
 working directory the runner will set, plus copy any final artifacts to output_dir if \
 specified. Do NOT use system() or shell-out from R. Output JSON only."""
 
-_INTERPRETER_SYSTEM = """\
-You interpret the output of an R analysis Heath just ran (he's away — you're documenting \
-for him to read tomorrow). Be honest about what the data show, including null results. \
-If the analysis errored, explain what went wrong and what to try next. \
+from agent.jobs import SCIENTIST_MODE  # noqa: E402
+
+_INTERPRETER_SYSTEM = SCIENTIST_MODE + "\n\n" + """\
+You interpret the output of an R analysis Heath just ran (he's away — you're \
+documenting for him to read tomorrow).
+
+Be honest about what the data show, including null results. If the analysis \
+errored, explain what went wrong and what to try next.
+
+Distinguish three things in your interpretation:
+1. What the analysis ACTUALLY shows (effect sizes, CIs, p-values as reported).
+2. What that warrants concluding given the design and sample size.
+3. What you'd need to see to be more or less confident — the next analysis or \
+data slice that would update your view.
+
+If a result is borderline, say so. If a confidence interval crosses zero, say \
+so. Don't oversell.
+
 Output ONLY the markdown interpretation, no preamble. 200-400 words."""
 
 # ---------------------------------------------------------------------------

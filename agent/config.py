@@ -44,6 +44,11 @@ _DEFAULTS: dict = {
         "weekly_review":                {"mode": "normal"},
         "wiki_janitor":                 {"mode": "normal"},
         "refresh_enrichment":           {"mode": "normal"},
+        # Daytime science micro-jobs
+        "midday_lit_pulse":             {"mode": "normal"},
+        "citation_watch":               {"mode": "normal"},
+        "paper_radar":                  {"mode": "normal"},
+        "database_pulse":               {"mode": "normal"},
     },
     "thresholds": {
         "stalled_flagship_days":     21,

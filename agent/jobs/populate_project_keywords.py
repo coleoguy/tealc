@@ -51,9 +51,10 @@ _SYSTEM_PROMPT = (
 def job() -> str:
     """Populate keywords for active projects that have none (up to 5 per run)."""
 
-    # 1. Time guard: only run 0-7am Central.
+    # 1. Time guard: only run 0-7am Central, unless explicitly force-run
+    # (set by run_job_now / run_scheduled_job for chat-driven manual triggers).
     hour = datetime.now(ZoneInfo("America/Chicago")).hour
-    if 8 <= hour < 22:
+    if 8 <= hour < 22 and os.environ.get("FORCE_RUN") != "1":
         return f"off-hours (hour={hour})"
 
     # 2. Pull active projects with empty keywords.

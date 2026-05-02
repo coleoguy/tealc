@@ -718,13 +718,18 @@ body::before {
   left: 24px !important;
   width: 200px !important;
   height: 200px !important;
-  background-image: url('/public/lab_logo.png') !important;
+  /* lab_logo.png never existed in /public — actual file is logo_light.png. */
+  background-image: url('/public/logo_light.png') !important;
   background-size: contain !important;
   background-repeat: no-repeat !important;
   background-position: center !important;
   z-index: 9999 !important;
   pointer-events: none !important;
   display: block !important;
+}
+[data-theme="dark"] body::before,
+.dark body::before {
+  background-image: url('/public/logo_dark.png') !important;
 }
 body::after {
   content: 'BLACKMON LAB · TAMU' !important;
@@ -742,7 +747,53 @@ body::after {
   pointer-events: none !important;
   display: block !important;
 }
+/* Sidebar links below the lab brand block. Both rendered as CSS pseudo-elements
+   on stable DOM elements (#root and html — body's pseudos are taken by the
+   logo + caption). Pseudo-elements aren't DOM nodes so React can't strip them.
+   Clickability handled by script_v2.js (window-level click + coord hit-test). */
+#root::after {
+  content: 'COMMAND CENTER →' !important;
+  position: fixed !important;
+  top: 312px !important;
+  left: 24px !important;
+  width: 200px !important;
+  text-align: center !important;
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.14em !important;
+  color: var(--accent) !important;
+  z-index: 9999 !important;
+  padding: 4px 0 !important;
+  border-top: 1px solid var(--rule) !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  display: block !important;
+  background: transparent !important;
+}
+/* Restart link — hits the dashboard's /restart endpoint after a confirm() */
+#root::before {
+  content: 'RESTART TEALC ↻' !important;
+  position: fixed !important;
+  top: 344px !important;
+  left: 24px !important;
+  width: 200px !important;
+  text-align: center !important;
+  font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.14em !important;
+  color: var(--ink-faint) !important;
+  z-index: 9999 !important;
+  padding: 4px 0 !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  display: block !important;
+  background: transparent !important;
+}
+
 /* Hide on narrow viewports so the brand doesn't overlap the chat */
 @media (max-width: 1100px) {
-  body::before, body::after { display: none !important; }
+  body::before, body::after,
+  #root::after, #root::before { display: none !important; }
 }

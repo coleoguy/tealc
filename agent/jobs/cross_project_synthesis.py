@@ -45,7 +45,9 @@ _ALLOWED_HOURS = range(0, 8)  # 0–7am Central only (heavy Opus call)
 # Opus system prompt (stable — cached via prompt caching)
 # ---------------------------------------------------------------------------
 
-_SYNTHESIS_SYSTEM = (
+from agent.jobs import SCIENTIST_MODE  # noqa: E402
+
+_SYNTHESIS_SYSTEM = SCIENTIST_MODE + "\n\n" + (
     "You are a systems thinker looking at a scientist's active research programs. "
     "Your job is to find non-obvious CROSS-PROJECT connections — ideas, methods, or "
     "hypotheses that tie two or more active projects together in a way that would be "
@@ -55,7 +57,8 @@ _SYNTHESIS_SYSTEM = (
     '  "title": "<short name, e.g. \'Apply BiSSE test used in dysploidy to sex-chromosome retention\'>",\n'
     '  "connected_project_ids": ["...", "..."],\n'
     '  "synthesis": "<2-3 sentences: what\'s the shared thread, what new hypothesis emerges>",\n'
-    '  "proposed_test": "<one sentence: how would one test this>",\n'
+    '  "proposed_test": "<one sentence: how would one test this, including (a) what observation would support and (b) what observation would falsify>",\n'
+    '  "strongest_counter": "<one sentence naming the most likely reason a careful reviewer would dismiss the connection, and how it could be ruled out>",\n'
     '  "novelty_score": <1-5>,\n'
     '  "feasibility_score": <1-5>,\n'
     '  "why_non_obvious": "<1 sentence: why a reasonable researcher might miss this>"\n'
@@ -82,8 +85,10 @@ def job() -> str:
         pass
 
     # 1. Time guard: only run 0–7am Central (heavy Opus call).
+    # FORCE_RUN=1 (set by run_job_now / run_scheduled_job) bypasses the guard
+    # so chat-driven manual triggers actually work.
     hour = datetime.now(ZoneInfo("America/Chicago")).hour
-    if hour not in _ALLOWED_HOURS:
+    if hour not in _ALLOWED_HOURS and os.environ.get("FORCE_RUN") != "1":
         return "off-hours"
 
     # 2. Pull active research projects with non-empty current_hypothesis.

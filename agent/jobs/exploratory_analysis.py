@@ -141,9 +141,9 @@ def job():
     except Exception:
         pass
 
-    # Step 1: time guard — only run 0–5am Central
+    # Step 1: time guard — only run 0–5am Central. FORCE_RUN=1 bypasses.
     hour = _central_hour()
-    if not (0 <= hour < 5):
+    if not (0 <= hour < 5) and os.environ.get("FORCE_RUN") != "1":
         return "off-hours"
 
     # Step 2: pick an eligible project

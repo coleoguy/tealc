@@ -319,8 +319,8 @@ def job() -> str:
     except Exception:
         pass
 
-    # 1. Time guard
-    if not _is_working_hours():
+    # 1. Time guard. FORCE_RUN=1 bypasses for chat-driven manual triggers.
+    if not _is_working_hours() and os.environ.get("FORCE_RUN") != "1":
         return "off-hours"
 
     # 2. Load VIP list

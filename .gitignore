@@ -1,0 +1,34 @@
+# Secrets — never commit
+.env
+.env.*
+google_credentials.json
+data/google_token.json
+
+# Runtime SQLite DB (canonical lives at ~/Library/Application Support/tealc/agent.db)
+data/agent.db
+data/agent.db-shm
+data/agent.db-wal
+
+# Regenerable caches (rebuilt by jobs / scheduler)
+data/voice_index.pkl
+data/voice_index_st.npz
+data/voice_sentences.jsonl
+data/scheduler.pid
+data/scheduler_heartbeat.json
+data/dashboard_server.pid
+data/scheduler.stdout.log
+data/dashboard_server.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+
+# macOS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp

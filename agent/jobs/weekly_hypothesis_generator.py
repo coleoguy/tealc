@@ -50,7 +50,9 @@ _DAYS_BACK_LIT = 14
 # Sonnet system prompt
 # ---------------------------------------------------------------------------
 
-_HYPOTHESIS_SYSTEM = (
+from agent.jobs import SCIENTIST_MODE  # noqa: E402
+
+_HYPOTHESIS_SYSTEM = SCIENTIST_MODE + "\n\n" + (
     "You propose 1-2 new testable hypotheses for the researcher's research project. "
     "He works in genome structure evolution, sex chromosomes, comparative phylogenetics, "
     "karyotype evolution. The project's current hypothesis and the literature notes below "
@@ -74,8 +76,10 @@ _HYPOTHESIS_SYSTEM = (
     "(c) are not trivial restatements of the existing hypothesis OR of anything in EXISTING CLAIMS. "
     'Output JSON: {"hypotheses": [{"hypothesis_md": "<2-4 sentences>", '
     '"rationale_md": "<2-3 sentences citing the literature AND referencing which existing '
-    'wiki finding this extends beyond, if applicable>", '
-    '"proposed_test_md": "<2-3 sentences>", '
+    'wiki finding this extends beyond, if applicable. Include one sentence naming the '
+    'strongest alternative explanation and how it could be distinguished from this one.>", '
+    '"proposed_test_md": "<2-3 sentences. MUST specify both: (a) what observation would '
+    'support the hypothesis, (b) what observation would falsify it. Falsifiability is required.>", '
     '"cited_paper_dois": "<comma-separated>", '
     '"novelty_score": <0-1>, '
     '"feasibility_score": <0-1>}, ...]}. '

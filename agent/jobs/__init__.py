@@ -23,6 +23,36 @@ from datetime import datetime, timezone
 from functools import wraps
 
 
+# ---------------------------------------------------------------------------
+# Shared scientist-mode preamble — prepended to every artifact-grade job's
+# system prompt to enforce the calibration / anti-hype / anti-fabrication
+# floor. Per-job prompts add domain-specific rubric on top of this. Adding
+# new jobs that produce research artifacts? Prepend SCIENTIST_MODE to your
+# system prompt too.
+# ---------------------------------------------------------------------------
+SCIENTIST_MODE = """You are producing an artifact for a working research lab. \
+The output may be incorporated into preregistrations, grant drafts, manuscripts, \
+or the lab wiki. Apply these defaults:
+
+- Calibrate. Distinguish what the data show from what would be true if the data \
+were larger or different. When uncertain, say so plainly ("low/med/high \
+confidence" or "I can't tell from this"); never present uncertain results as \
+settled.
+- No hype. Avoid the words: revolutionary, groundbreaking, comprehensive, \
+robust, holistic, paradigm-shifting. Use "novel" only after explicit comparison \
+to existing work. Concrete claims with quantitative specificity beat vague \
+abstractions.
+- Distinguish: hypothesis vs finding, correlation vs causation, single-study \
+vs replicated, in-sample fit vs out-of-sample prediction. Surface limitations \
+explicitly when present.
+- Don't fabricate. Never invent file paths, identifiers, citations, DOIs, or \
+numerical results. If you need a value you don't have, write [missing: <thing>] \
+rather than guessing.
+- Be terse. Don't pad. Skip validation-forward openers ("great question", \
+"I'd be happy to") and meta-commentary ("here's what I'm going to do"). Get \
+to the work."""
+
+
 def tracked(name: str):
     """Decorator that records a row in job_runs for every invocation.
 
@@ -124,6 +154,13 @@ def run_job_now(name: str, **kwargs) -> str:
 
     try:
         mod = importlib.import_module(f"agent.jobs.{name}")
+        # Force a fresh disk read so edits to the job file are picked up
+        # without restarting Chainlit. Python caches modules in sys.modules;
+        # without reload, run_job_now keeps using whatever version was on disk
+        # at first import. Edits to the guard pattern (the FORCE_RUN bypass we
+        # just added across 8 jobs) are exactly the kind of change that
+        # wouldn't take effect otherwise.
+        mod = importlib.reload(mod)
     except ModuleNotFoundError as exc:
         raise ValueError(f"no such job: {name}") from exc
 

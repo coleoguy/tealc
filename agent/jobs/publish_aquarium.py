@@ -83,6 +83,11 @@ _JOB_LABELS: dict[str, tuple[str, str]] = {
     "goal_conflict_check":           ("tool",     "Scanned goal conflicts"),
     "weekly_database_health":        ("drive",    "Checked database health"),
     "quarterly_retrospective":       ("tool",     "Quarterly review"),
+    # Daytime science micro-jobs
+    "midday_lit_pulse":              ("read",     "Read a recent preprint"),
+    "citation_watch":                ("cite",     "Checked citations of lab work"),
+    "paper_radar":                   ("search",   "Scanned new preprints"),
+    "database_pulse":                ("drive",    "Audited a karyotype database"),
     # Prereg-to-Replication Loop (Bet 2 / Tier 1 #1)
     ("prereg_replication_loop", "monday_prereg"):   ("tool", "Published a public preregistration"),
     ("prereg_replication_loop", "t7_adjudication"): ("tool", "Published a replication verdict (supported/refuted/null)"),

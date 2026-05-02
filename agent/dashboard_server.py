@@ -28,7 +28,11 @@ from typing import Optional  # noqa: E402
 _HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.normpath(os.path.join(_HERE, "..", "data"))
 PUBLIC_DIR = os.path.normpath(os.path.join(_HERE, "..", "public"))
-DB_PATH = os.path.join(DATA_DIR, "agent.db")
+# Operational DB is owned by the scheduler. Use its resolution (TEALC_DB_PATH
+# env var → default to ~/Library/Application Support/tealc/agent.db) so the
+# dashboard reads/writes the same DB the scheduled jobs do. JSON state files
+# (dashboard_state.json, abilities.json) still live alongside this script.
+from agent.scheduler import DB_PATH  # noqa: E402
 
 app = FastAPI(title="Tealc HQ", docs_url=None, redoc_url=None)
 
@@ -1444,6 +1448,9 @@ def _build_project_dict(
         "agency": _row_get(row, "agency"),
         "program": _row_get(row, "program"),
         "grant_status": _row_get(row, "grant_status"),
+        # Lifecycle + wiki visibility
+        "stage": _row_get(row, "stage"),
+        "include_in_wiki": int(_row_get(row, "include_in_wiki") or 0),
     }
 
 
@@ -1455,6 +1462,29 @@ _VALID_PAPER_STATUSES = {
 _VALID_GRANT_STATUSES = {
     "in_prep", "submitted", "under_review", "awarded", "declined", "deferred",
 }
+_VALID_STAGES = {
+    "in_development", "data_collection", "finalizing_manuscript", "under_review", "published",
+}
+
+# Main journals dropdown (frontend renders these + an "Other (write-in)" entry).
+# Stored value is the journal name string; "Other" lets the user type free text.
+MAIN_JOURNALS = [
+    "Journal of Heredity",
+    "Evolution",
+    "Genetics",
+    "Heredity",
+    "G3: Genes, Genomes, Genetics",
+    "PeerJ",
+    "Genes",
+    "Genome Biology and Evolution",
+    "Molecular Biology and Evolution",
+    "Systematic Biology",
+    "Nature Communications",
+    "PLOS Genetics",
+    "Ecology and Evolution",
+    "Chromosome Research",
+    "bioRxiv",
+]
 
 
 class ProjectUpdate(BaseModel):
@@ -1478,6 +1508,9 @@ class ProjectUpdate(BaseModel):
     agency: Optional[str] = None           # free text (NIH, NSF, Google.org, etc.)
     program: Optional[str] = None          # free text
     grant_status: Optional[str] = None     # 'in_prep'|'submitted'|'under_review'|'awarded'|'declined'|'deferred'
+    # Lifecycle stage (drives wiki visibility: published projects are filtered out)
+    stage: Optional[str] = None            # 'in_development'|'data_collection'|'finalizing_manuscript'|'under_review'|'published'
+    include_in_wiki: Optional[int] = None  # 1 or 0; manual override for the public projects page
 
 
 _PROJECT_COLUMNS = (
@@ -1485,7 +1518,8 @@ _PROJECT_COLUMNS = (
     "current_hypothesis, next_action, keywords, linked_artifact_id, "
     "last_touched_by, last_touched_iso, notes, "
     "lead_student_id, lead_name, "
-    "project_type, journal, paper_status, agency, program, grant_status"
+    "project_type, journal, paper_status, agency, program, grant_status, "
+    "stage, include_in_wiki"
 )
 
 
@@ -1547,6 +1581,8 @@ async def get_projects(status: str = "active"):
             "generated_at": _now_iso(),
             "projects": projects,
             "students": students,
+            "journals": MAIN_JOURNALS,
+            "stages": sorted(_VALID_STAGES),
         })
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -1560,6 +1596,10 @@ def _validate_project_type_fields(req: "ProjectUpdate"):
         return f"paper_status must be one of {sorted(_VALID_PAPER_STATUSES)}"
     if req.grant_status is not None and req.grant_status not in _VALID_GRANT_STATUSES:
         return f"grant_status must be one of {sorted(_VALID_GRANT_STATUSES)}"
+    if req.stage is not None and req.stage not in _VALID_STAGES:
+        return f"stage must be one of {sorted(_VALID_STAGES)}"
+    if req.include_in_wiki is not None and req.include_in_wiki not in (0, 1):
+        return "include_in_wiki must be 0 or 1"
     return None
 
 
@@ -1654,8 +1694,9 @@ async def create_project(req: ProjectUpdate):
             "id, name, description, status, linked_goal_ids, data_dir, output_dir, "
             "current_hypothesis, next_action, keywords, linked_artifact_id, "
             "last_touched_by, last_touched_iso, notes, lead_student_id, lead_name, synced_at, "
-            "project_type, journal, paper_status, agency, program, grant_status"
-            ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "project_type, journal, paper_status, agency, program, grant_status, "
+            "stage, include_in_wiki"
+            ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 pid,
                 req.name,
@@ -1680,6 +1721,8 @@ async def create_project(req: ProjectUpdate):
                 req.agency,
                 req.program,
                 req.grant_status,
+                req.stage,
+                req.include_in_wiki if req.include_in_wiki is not None else 1,
             ),
         )
         conn.commit()
@@ -1844,6 +1887,122 @@ async def update_settings(req: SettingsUpdate):
         cfg.setdefault("personality", {}).update(req.personality)
     save_config(cfg)
     return cfg
+
+
+# ---------------------------------------------------------------------------
+# /restart — hit by the "RESTART" pseudo-element link on the chat sidebar.
+# Kills chainlit + scheduler, sleeps briefly for ports to clear, spawns the
+# canonical start scripts. Does NOT touch the dashboard itself (this process)
+# because that would kill the request handler. Returns a small status page
+# that auto-redirects to localhost:8000 after ~12 s.
+# ---------------------------------------------------------------------------
+
+@app.get("/restart")
+def restart_tealc(target: str = "all"):
+    import os
+    import signal
+    import subprocess
+    import time as _time
+    from fastapi.responses import HTMLResponse
+
+    LAB_DIR = (
+        "/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/"
+        "My Drive/00-Lab-Agent"
+    )
+
+    if target not in {"all", "chat", "scheduler"}:
+        target = "all"
+
+    killed: list[str] = []
+    started: list[str] = []
+    errors: list[str] = []
+
+    if target in ("all", "chat"):
+        try:
+            r = subprocess.run(
+                ["lsof", "-ti:8000"], capture_output=True, text=True, timeout=5
+            )
+            for pid_s in r.stdout.split():
+                try:
+                    os.kill(int(pid_s), signal.SIGTERM)
+                    killed.append(f"chainlit pid {pid_s}")
+                except ProcessLookupError:
+                    pass
+        except Exception as e:
+            errors.append(f"chainlit kill: {e}")
+
+    if target in ("all", "scheduler"):
+        sched_pid_file = os.path.join(LAB_DIR, "data", "scheduler.pid")
+        try:
+            with open(sched_pid_file) as f:
+                sched_pid = int(f.read().strip())
+            os.kill(sched_pid, signal.SIGTERM)
+            killed.append(f"scheduler pid {sched_pid}")
+        except (FileNotFoundError, ValueError, ProcessLookupError):
+            pass
+        except Exception as e:
+            errors.append(f"scheduler kill: {e}")
+        try:
+            os.remove(sched_pid_file)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+
+    _time.sleep(1.5)
+
+    if target in ("all", "scheduler"):
+        try:
+            subprocess.Popen(
+                ["bash", os.path.join(LAB_DIR, "scripts", "start_scheduler.sh")],
+                cwd=LAB_DIR,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            started.append("scheduler")
+        except Exception as e:
+            errors.append(f"scheduler start: {e}")
+
+    if target in ("all", "chat"):
+        try:
+            subprocess.Popen(
+                ["bash", os.path.join(LAB_DIR, "run.sh")],
+                cwd=LAB_DIR,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            started.append("chainlit")
+        except Exception as e:
+            errors.append(f"chainlit start: {e}")
+
+    body = f"""<!doctype html>
+<html><head><title>Restarting Tealc</title>
+<meta http-equiv="refresh" content="12;url=http://localhost:8000/">
+<style>
+  body {{ font-family: ui-monospace, 'JetBrains Mono', monospace;
+         max-width: 540px; margin: 60px auto; padding: 0 20px;
+         color: #1e1713; background: #faf6ec; }}
+  h1 {{ font-size: 22px; color: #500000; margin-bottom: 4px; }}
+  .sub {{ color: #7a6d60; font-size: 12px; margin-bottom: 24px; }}
+  ul {{ font-size: 13px; color: #5a4c46; }} li {{ margin: 4px 0; }}
+  .err {{ color: #b22222; }}
+  .note {{ color: #7a6d60; font-size: 12px; margin-top: 24px; }}
+  a {{ color: #500000; }}
+</style></head>
+<body>
+<h1>Restarting Tealc</h1>
+<div class="sub">target = {target}</div>
+<p><b>Killed:</b></p>
+<ul>{''.join(f'<li>{k}</li>' for k in killed) or '<li>nothing was running</li>'}</ul>
+<p><b>Spawned (detached):</b></p>
+<ul>{''.join(f'<li>{s}</li>' for s in started)}</ul>
+{('<p><b class="err">Errors:</b></p><ul>' + ''.join(f'<li class="err">{e}</li>' for e in errors) + '</ul>') if errors else ''}
+<p class="note">This page auto-redirects to the chat in ~12 s.
+If the chat doesn't load, refresh <a href="http://localhost:8000/">localhost:8000</a> manually.</p>
+</body></html>"""
+    return HTMLResponse(body)
 
 
 # ---------------------------------------------------------------------------

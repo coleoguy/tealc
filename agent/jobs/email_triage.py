@@ -342,8 +342,8 @@ def _already_triaged(conn: sqlite3.Connection, message_id: str) -> bool:
 def job() -> str:
     """Fetch unread emails, classify with Haiku, draft replies with Sonnet."""
 
-    # Off-hours guard — cheap exit
-    if not _is_working_hours():
+    # Off-hours guard — cheap exit. FORCE_RUN=1 bypasses for manual triggers.
+    if not _is_working_hours() and os.environ.get("FORCE_RUN") != "1":
         return "skipped: off-hours"
 
     from agent.tools import list_recent_emails, draft_email_reply  # noqa: PLC0415

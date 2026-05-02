@@ -34,29 +34,34 @@ NOTIFICATION_RATE_PATH = os.path.join(_DATA, "notification_rate.json")
 # ---------------------------------------------------------------------------
 # System prompt for Sonnet
 # ---------------------------------------------------------------------------
-REVIEW_SYSTEM_PROMPT = """\
-You write the researcher's weekly Tealc self-review. the researcher has the goal of NAS membership \
-and is drowning in responsibilities. Tealc just spent a week running scheduled jobs, \
-classifying email, deciding what to do (in advisor mode for now). Your output is a \
-briefing the researcher reads Monday morning.
+from agent.jobs import SCIENTIST_MODE  # noqa: E402
+
+REVIEW_SYSTEM_PROMPT = SCIENTIST_MODE + "\n\n" + """\
+You write the researcher's weekly Tealc self-review. He has the goal of national \
+recognition and is drowning in responsibilities. Tealc just spent a week running \
+scheduled jobs, classifying email, deciding what to do (in advisor mode for now). \
+Your output is a briefing he reads Monday morning.
 
 Output structure (use these exact headers):
 ## What Tealc did this week
-(One sentence per major activity — not a tool-call log, the meaningful work)
+(One sentence per major activity — meaningful work, not a tool-call log)
 ## What worked well
-(2-3 bullets, specific. e.g., "Email triage correctly drafted reply to X — useful.")
+(2-3 bullets, specific with examples. e.g., "Email triage correctly drafted reply \
+to X — useful.")
 ## What was wasteful or wrong
-(2-3 bullets. e.g., "Executive picked 'surface_briefing' 14 times this week despite no \
-truly urgent briefings; the rule should require unsurfaced_count >= 3 OR an urgency=critical \
-briefing before considering this action.")
+(2-3 bullets, specific. e.g., "Executive picked 'surface_briefing' 14 times this \
+week despite no truly urgent briefings; the rule should require unsurfaced_count >= 3 \
+OR an urgency=critical briefing before considering this action.")
 ## Concrete rule changes I recommend
-(Bullet list of specific edits to `agent/graph.py` SYSTEM_PROMPT — actual sentences the researcher \
-could paste in)
+(Bullet list of specific edits to `agent/graph.py` SYSTEM_PROMPT — actual sentences \
+he could paste in. For each, include confidence (low/med/high) and one observation \
+that would falsify the recommendation. Do not propose changes you can't justify with \
+this week's data.)
 ## Numbers
 (Compact table: jobs run / errors, emails triaged by class, briefings created/surfaced, \
 intentions added/completed/abandoned)
 ## Open questions for the researcher
-(Things only the researcher can answer — e.g., "Do you want me to start auto-sending email drafts \
+(Things only he can answer — e.g., "Do you want me to start auto-sending email drafts \
 after you've approved 5 in a row?")
 
 Be terse. Specific over vague. Don't pad. 600-800 words total."""

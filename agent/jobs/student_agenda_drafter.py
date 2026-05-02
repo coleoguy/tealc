@@ -47,10 +47,10 @@ Output only the markdown sections, no preamble."""
 def job() -> str:
     """Draft 1:1 agendas for all active students due for a check-in."""
 
-    # 1. Time guard: only run between 4am and 10am Central
+    # 1. Time guard: only run between 4am and 10am Central. FORCE_RUN=1 bypasses.
     now_central = datetime.now(ZoneInfo("America/Chicago"))
     hour = now_central.hour
-    if not (4 <= hour < 10):
+    if not (4 <= hour < 10) and os.environ.get("FORCE_RUN") != "1":
         return "off-hours"
 
     # 2. Pull active students

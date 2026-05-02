@@ -1267,9 +1267,15 @@ def register_jobs(scheduler: AsyncIOScheduler):
     from agent.jobs.gloss_harvester import job as gloss_harvester_job  # noqa: PLC0415
     from agent.jobs.method_promoter import job as method_promoter_job  # noqa: PLC0415
     from agent.jobs.sync_lab_projects import job as sync_lab_projects_job  # noqa: PLC0415
+    from agent.jobs.sync_lab_team import job as sync_lab_team_job  # noqa: PLC0415
     from agent.jobs.prereg_replication_loop import run_monday_prereg, run_daily_t7_sweep  # noqa: PLC0415
     from agent.jobs.notebook_publisher import job as notebook_publisher_job  # noqa: PLC0415
     from agent.jobs.notebook_index import job as notebook_index_job  # noqa: PLC0415
+    # Daytime science micro-jobs (work-hours visibility for the public aquarium)
+    from agent.jobs.midday_lit_pulse import job as midday_lit_pulse_job  # noqa: PLC0415
+    from agent.jobs.citation_watch import job as citation_watch_job  # noqa: PLC0415
+    from agent.jobs.paper_radar import job as paper_radar_job  # noqa: PLC0415
+    from agent.jobs.database_pulse import job as database_pulse_job  # noqa: PLC0415
 
     scheduler.add_job(
         heartbeat_job,
@@ -1559,6 +1565,33 @@ def register_jobs(scheduler: AsyncIOScheduler):
         id="publish_aquarium", replace_existing=True,
     )
 
+    # ----------------------------------------------------------------------
+    # Daytime science micro-jobs — make the public aquarium feed look like a
+    # research postdoc rather than an admin assistant during work hours.
+    # All four enforce their own working-hours / pulse-window guards inside
+    # job() so they no-op cheaply at night.
+    # ----------------------------------------------------------------------
+    scheduler.add_job(
+        midday_lit_pulse_job,
+        IntervalTrigger(minutes=90),
+        id="midday_lit_pulse", replace_existing=True,
+    )
+    scheduler.add_job(
+        citation_watch_job,
+        IntervalTrigger(hours=4),
+        id="citation_watch", replace_existing=True,
+    )
+    scheduler.add_job(
+        paper_radar_job,
+        IntervalTrigger(hours=2),
+        id="paper_radar", replace_existing=True,
+    )
+    scheduler.add_job(
+        database_pulse_job,
+        IntervalTrigger(hours=5),  # fires roughly twice in the work day
+        id="database_pulse", replace_existing=True,
+    )
+
     # v4: meeting prep — every 15 min during work hours (internal time-guard skips off-hours)
     scheduler.add_job(
         meeting_prep_job,
@@ -1717,6 +1750,16 @@ def register_jobs(scheduler: AsyncIOScheduler):
         id="sync_lab_projects", replace_existing=True,
     )
 
+    # Daily 4:15am CT — reconcile the lab website's data/team.json into the
+    # students table.  Inserts new members, updates roles, soft-marks
+    # departures as status='alumni'.  Heath is skipped (hardcoded in the
+    # dashboard lead picker).
+    scheduler.add_job(
+        sync_lab_team_job,
+        CronTrigger(hour=4, minute=15, timezone="America/Chicago"),
+        id="sync_lab_team", replace_existing=True,
+    )
+
     # Bet 3: Open Lab Notebook — drain publish queue every 30 min
     scheduler.add_job(
         notebook_publisher_job,
@@ -1730,7 +1773,7 @@ def register_jobs(scheduler: AsyncIOScheduler):
         id="notebook_index", replace_existing=True,
     )
 
-    log.info("Jobs registered: heartbeat, morning_briefing, grant_radar, student_pulse, refresh_context, executive, email_triage, paper_of_the_day, summarize_sessions, weekly_review, watch_deadlines, email_burst, track_nas_metrics, daily_plan, nas_impact_score, quarterly_retrospective, goal_conflict_check, nightly_literature_synthesis, nightly_grant_drafter, weekly_database_health, weekly_comparative_analysis, weekly_hypothesis_generator, retrieval_quality_monitor, aquarium_audit, replication_docs, preference_consolidator, midday_check, deadline_countdown, next_action_filler, meeting_prep, vip_email_watch, nas_pipeline_health, cross_project_synthesis, student_agenda_drafter, populate_project_keywords, publish_aquarium, exploratory_analysis, nas_case_packet, rebuild_voice_index, publish_dashboard, publish_abilities, wiki_janitor, refresh_enrichment, improve_wiki, projects_mirror, contradictions_index, open_questions_index, gloss_harvester, method_promoter, prereg_monday, prereg_t7_sweep (sync_goals_sheet RETIRED — use export_state_to_sheet tool)")
+    log.info("Jobs registered: heartbeat, morning_briefing, grant_radar, student_pulse, refresh_context, executive, email_triage, paper_of_the_day, summarize_sessions, weekly_review, watch_deadlines, email_burst, track_nas_metrics, daily_plan, nas_impact_score, quarterly_retrospective, goal_conflict_check, nightly_literature_synthesis, nightly_grant_drafter, weekly_database_health, weekly_comparative_analysis, weekly_hypothesis_generator, retrieval_quality_monitor, aquarium_audit, replication_docs, preference_consolidator, midday_check, deadline_countdown, next_action_filler, meeting_prep, vip_email_watch, nas_pipeline_health, cross_project_synthesis, student_agenda_drafter, populate_project_keywords, publish_aquarium, exploratory_analysis, nas_case_packet, rebuild_voice_index, publish_dashboard, publish_abilities, wiki_janitor, refresh_enrichment, improve_wiki, projects_mirror, contradictions_index, open_questions_index, gloss_harvester, method_promoter, prereg_monday, prereg_t7_sweep, midday_lit_pulse, citation_watch, paper_radar, database_pulse (sync_goals_sheet RETIRED — use export_state_to_sheet tool)")
 
 
 # ---------------------------------------------------------------------------

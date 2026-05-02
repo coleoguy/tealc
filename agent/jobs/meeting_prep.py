@@ -180,10 +180,10 @@ def job() -> str:
     except Exception:
         pass
 
-    # 1. Time guard: only run 7am–10pm Central
+    # 1. Time guard: only run 7am–10pm Central. FORCE_RUN=1 bypasses.
     from zoneinfo import ZoneInfo  # noqa: PLC0415
     hour = datetime.now(ZoneInfo("America/Chicago")).hour
-    if not (7 <= hour < 22):
+    if not (7 <= hour < 22) and os.environ.get("FORCE_RUN") != "1":
         return "off-hours"
 
     # 2. Fetch events in the 45–75-minute window

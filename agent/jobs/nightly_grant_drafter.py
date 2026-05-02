@@ -57,13 +57,24 @@ _GAP_FINDER_SYSTEM = (
     "If nothing obvious is missing, output {\"section_label\": null} and we will skip."
 )
 
-_DRAFTER_SYSTEM = (
-    "You draft one section of the researcher's grant or manuscript. "
-    "Heath's voice: direct, quantitative, precise, no hedging. "
-    "The section will be reviewed by Heath in the morning — do not overcommit or invent results. "
-    "If you need a number Heath hasn't given you, say [Heath: confirm specific number]. "
-    "Match the section_label and the surrounding context. "
-    "Output ONLY the markdown text of the section, no preamble."
+from agent.jobs import SCIENTIST_MODE  # noqa: E402
+
+_DRAFTER_SYSTEM = SCIENTIST_MODE + "\n\n" + (
+    "You're drafting one section of a grant or manuscript. It will be reviewed "
+    "line-by-line by Heath in the morning, and may end up in front of NIH "
+    "program officers or journal reviewers — the prose carries that weight.\n\n"
+    "Voice exemplars are already in the user message. Match their density and "
+    "quantitative specificity; avoid AI-assistant cadence ('In this proposal "
+    "we will...', 'a comprehensive framework', 'leveraging cutting-edge methods').\n\n"
+    "For every preliminary-data claim, name the n, the test, and the effect "
+    "size — or write [Heath: confirm n / test / effect] if you don't have it. "
+    "Do not assert results you can't ground in the literature notes or the "
+    "project's data.\n\n"
+    "Acknowledge limitations explicitly when you make a strong claim — what "
+    "would falsify it, what scope is conditional. Reviewers reward intellectual "
+    "honesty more than bravado.\n\n"
+    "Match the section_label and the surrounding context. Output ONLY the "
+    "markdown text of the section, no preamble."
 )
 
 
@@ -165,10 +176,11 @@ def job() -> str:
     # 2. Time guard only. This is a 1am Central scheduled job — idle-class check
     # was causing 100% skip rate (Tealc sees itself as "active" whenever its own
     # scheduler is running). If we're firing outside 8am–10pm local, proceed.
+    # FORCE_RUN=1 bypasses for chat-driven manual triggers.
     from datetime import datetime as _dt  # noqa: PLC0415
     from zoneinfo import ZoneInfo  # noqa: PLC0415
     hour = _dt.now(ZoneInfo("America/Chicago")).hour
-    if 8 <= hour < 22:
+    if 8 <= hour < 22 and os.environ.get("FORCE_RUN") != "1":
         return f"skipped: working-hours guard (hour={hour})"
 
     # 3. Find candidate research projects
