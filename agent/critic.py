@@ -2,18 +2,8 @@
 import json
 import os
 
-from dotenv import load_dotenv
-
-_PROJECT_ROOT = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-)
-load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
-
-from anthropic import Anthropic  # noqa: E402
-
-import agent.cost_tracking as cost_tracking  # noqa: E402
-
-client = Anthropic()
+from agent.llm import chat
+from agent.cost_tracking import record_call
 
 CRITIC_RUBRICS: dict[str, str] = {
     "default": """You are a rigorous scientific critic. Your job is to evaluate research outputs
@@ -204,47 +194,39 @@ Reply with JSON only (no markdown fences):
 def critic_pass(draft_text: str, rubric_name: str = "default") -> dict:
     """Run an adversarial critic pass on draft_text using the named rubric.
 
+    The model is selected via ``model_router.choose_model("critic_pass")``
+    (which routes to OPUS per ``_OPUS_TASKS``) rather than hard-coded.
+    Effort tier defaults to "medium" — model_router's EFFORT_TIERS uses
+    "opus_critic" as the key for xhigh, but routing uses "critic_pass";
+    that naming inconsistency is a model_router bug to clean up later.
+
     Returns a dict with keys: score, unsupported_claims, missing_citations,
     hype_flags, calibration_notes, overall_notes, model, tokens_in, tokens_out,
     cache_read_tokens, cache_write_tokens.
     """
+    from agent.model_router import choose_model
+    choice = choose_model("critic_pass", log=False)
+    model = choice.model
+
     rubric = CRITIC_RUBRICS.get(rubric_name, CRITIC_RUBRICS["default"])
-    model = "claude-opus-4-7"
 
-    msg = client.messages.create(
-        model=model,
+    response = chat(
+        model,
+        system=[{"type": "text", "text": rubric, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": f"Please evaluate the following text:\n\n{draft_text}"}],
         max_tokens=1000,
-        system=[
-            {
-                "type": "text",
-                "text": rubric,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        messages=[
-            {
-                "role": "user",
-                "content": f"Please evaluate the following text:\n\n{draft_text}",
-            }
-        ],
+        cache_hint=True,
+        effort=choice.effort,
     )
 
-    usage = msg.usage
-    tokens_in = getattr(usage, "input_tokens", 0) or 0
-    tokens_out = getattr(usage, "output_tokens", 0) or 0
-    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-    cache_write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    record_call(job_name="critic_pass", model=model, usage=response.usage)
 
-    usage_dict = (
-        usage.model_dump() if hasattr(usage, "model_dump") else dict(usage)
-    )
-    cost_tracking.record_call(
-        job_name="critic_pass",
-        model=model,
-        usage=usage_dict,
-    )
+    first_block = response.content[0] if response.content else {}
+    if first_block.get("type") == "text":
+        raw = first_block["text"].strip()
+    else:
+        raw = ""
 
-    raw = msg.content[0].text.strip()
     # Strip markdown fences if present
     if raw.startswith("```"):
         lines = raw.splitlines()
@@ -265,8 +247,8 @@ def critic_pass(draft_text: str, rubric_name: str = "default") -> dict:
         }
 
     result["model"] = model
-    result["tokens_in"] = tokens_in
-    result["tokens_out"] = tokens_out
-    result["cache_read_tokens"] = cache_read
-    result["cache_write_tokens"] = cache_write
+    result["tokens_in"] = response.usage.input_tokens
+    result["tokens_out"] = response.usage.output_tokens
+    result["cache_read_tokens"] = response.usage.cache_read_tokens
+    result["cache_write_tokens"] = response.usage.cache_write_tokens
     return result
