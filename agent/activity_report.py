@@ -11,9 +11,10 @@ import sqlite3
 from collections import Counter, defaultdict
 from datetime import datetime, timezone, timedelta
 
+from agent.scheduler import DB_PATH
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _DATA = os.path.normpath(os.path.join(_HERE, "..", "data"))
-DB_PATH = os.path.join(_DATA, "agent.db")
 HEARTBEAT_PATH = os.path.join(_DATA, "scheduler_heartbeat.json")
 PID_PATH = os.path.join(_DATA, "scheduler.pid")
 

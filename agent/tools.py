@@ -34,11 +34,21 @@ def _read_pdf(path: str) -> str:
     return "\n\n".join(parts)
 
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "agent.db")
+def _db_path() -> str:
+    """Resolve the canonical agent.db path via env-aware scheduler module.
+
+    Lazy import avoids circular imports at module load and ensures every
+    sqlite3 call hits the same path the scheduler is writing to (typically
+    ~/Library/Application Support/tealc/agent.db, overridable via
+    TEALC_DB_PATH). Hand-rolled fallback paths from __file__ silently
+    bifurcate to Drive's abandoned data/agent.db — do not reintroduce.
+    """
+    from agent.scheduler import DB_PATH  # noqa: PLC0415
+    return DB_PATH
 
 
 def _get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.execute("""
         CREATE TABLE IF NOT EXISTS notes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -980,7 +990,9 @@ def _log_trash(mid: str, from_h: str, subject: str, outcome: str, dry_run: bool)
 
 @tool
 def list_upcoming_events(days_ahead: int = 7) -> str:
-    """List upcoming calendar events. Requires Google credentials to be set up."""
+    """List upcoming calendar events. Each line includes the event id, suitable
+    for passing to update_calendar_event / delete_calendar_event. Requires
+    Google credentials to be set up."""
     service, err = _get_google_service("calendar", "v3")
     if err:
         return f"Calendar not connected: {err}"
@@ -1001,7 +1013,9 @@ def list_upcoming_events(days_ahead: int = 7) -> str:
         lines = []
         for e in events:
             start = e["start"].get("dateTime", e["start"].get("date", "N/A"))
-            lines.append(f"- {start}: {e.get('summary', 'No title')}")
+            lines.append(
+                f"- {start}: {e.get('summary', 'No title')} (id: {e.get('id', 'N/A')})"
+            )
         return "\n".join(lines)
     except Exception as e:
         return f"Error reading calendar: {e}"
@@ -2563,7 +2577,7 @@ def _get_student_db():
     """Return a connection with the student tables guaranteed to exist."""
     from agent.scheduler import _migrate  # noqa: PLC0415
     _migrate()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
@@ -2861,7 +2875,7 @@ def _auto_log_student_mentions(text: str):
     (case-insensitive substring) in the combined message + response text."""
     try:
         from datetime import timezone as _tz  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         students = conn.execute(
             "SELECT id, full_name, short_name FROM students WHERE status='active'"
@@ -2898,7 +2912,7 @@ def list_grant_opportunities(min_fit: float = 0.5, days_until_deadline: int = 18
     Returns a markdown table sorted by fit score descending."""
     try:
         from datetime import timezone as _tz, timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         today = datetime.now(_tz.utc).date()
         cutoff = (today + timedelta(days=days_until_deadline)).isoformat()
@@ -2942,7 +2956,7 @@ def dismiss_grant_opportunity(opportunity_id: int, reason: str) -> str:
     opportunity_id: the [N] id shown in list_grant_opportunities.
     reason: brief note on why (e.g. 'not a fit', 'already submitted', 'deadline passed')."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT title FROM grant_opportunities WHERE id=?", (opportunity_id,)
@@ -2984,7 +2998,7 @@ def add_intention(kind: str, description: str, target_iso: str = "",
         if priority not in _VALID_PRIORITIES:
             return f"Error: invalid priority '{priority}'. Must be one of: {', '.join(sorted(_VALID_PRIORITIES))}"
         now = datetime.now().isoformat()
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         cur = conn.execute(
             "INSERT INTO intentions(kind, description, target_iso, priority, status, created_by, context_json, created_at, updated_at) "
@@ -3005,7 +3019,7 @@ def list_intentions(status: str = "pending", limit: int = 25) -> str:
     Sorted by priority desc, then target_iso asc (NULLs last)."""
     try:
         priority_order = "CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         if status == "all":
             rows = conn.execute(
@@ -3046,7 +3060,7 @@ def complete_intention(intention_id: int, notes: str = "") -> str:
     """Mark an intention done. Optionally add completion notes."""
     try:
         now = datetime.now().isoformat()
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT description, notes FROM intentions WHERE id=?", (intention_id,)
@@ -3076,7 +3090,7 @@ def abandon_intention(intention_id: int, reason: str) -> str:
         if not reason or not reason.strip():
             return "Error: reason is required."
         now = datetime.now().isoformat()
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT description, notes FROM intentions WHERE id=?", (intention_id,)
@@ -3106,7 +3120,7 @@ def update_intention(intention_id: int, description: str = "", target_iso: str =
             return f"Error: invalid priority '{priority}'. Must be one of: {', '.join(sorted(_VALID_PRIORITIES))}"
         if status and status not in _VALID_STATUSES:
             return f"Error: invalid status '{status}'. Must be one of: {', '.join(sorted(_VALID_STATUSES))}"
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT description, target_iso, priority, status, notes FROM intentions WHERE id=?",
@@ -3143,7 +3157,7 @@ def get_idle_class() -> str:
     Used by the executive loop and by chat to understand Heath's current availability.
     active = last chat <30 min; engaged = 30 min–4 hr; idle = 4–24 hr; deep_idle = >24 hr."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT idle_class, hours_since_last_chat FROM current_context WHERE id=1"
@@ -3165,7 +3179,7 @@ def get_current_context() -> str:
     open grant opportunities, current local time/day. Use this when you want a fast situational read
     without running multiple separate queries."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute("SELECT * FROM current_context WHERE id=1").fetchone()
         conn.close()
@@ -3213,7 +3227,7 @@ def list_executive_decisions(hours_back: int = 24, limit: int = 30) -> str:
     with action, reasoning, and confidence — so Heath can verify Haiku is making sensible
     calls before any actions get promoted to autonomous execution."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         cutoff = datetime.utcnow().isoformat()
         # Compute cutoff by subtracting hours_back hours from now
         from datetime import timedelta
@@ -3252,7 +3266,7 @@ def list_email_triage_decisions(hours_back: int = 24, classification: str = "") 
     markdown table sorted newest first."""
     try:
         from datetime import timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         cutoff_dt = datetime.utcnow() - timedelta(hours=hours_back)
         cutoff_iso = cutoff_dt.isoformat()
         if classification:
@@ -3302,7 +3316,7 @@ def list_pending_service_requests(days_back: int = 7) -> str:
     slipped through unaddressed."""
     try:
         from datetime import timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         cutoff_dt = datetime.utcnow() - timedelta(days=days_back)
         cutoff_iso = cutoff_dt.isoformat()
@@ -3356,7 +3370,7 @@ def review_recent_drafts(limit: int = 10) -> str:
             return "No drafts found."
 
         # Also pull triage DB for context
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         triage_rows = conn.execute(
             "SELECT draft_id, message_id, from_email, subject FROM email_triage_decisions "
             "WHERE draft_id IS NOT NULL ORDER BY decided_at DESC LIMIT 50"
@@ -3416,7 +3430,7 @@ def get_paper_of_the_day(date_iso: str = "") -> str:
     try:
         from datetime import timezone as _tz  # noqa: PLC0415
         target = date_iso.strip() if date_iso.strip() else datetime.now(_tz.utc).date().isoformat()
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             """SELECT date_iso, title, authors, journal, publication_year,
@@ -3451,7 +3465,7 @@ def get_paper_of_the_day(date_iso: str = "") -> str:
 def list_recent_papers_of_the_day(days_back: int = 7) -> str:
     """List the past N days of paper-of-the-day picks with one-line summaries each."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         rows = conn.execute(
             """SELECT date_iso, title, journal, topic_matched, why_it_matters_md
@@ -3482,7 +3496,7 @@ def recall_past_conversations(query: str, days_back: int = 30, limit: int = 5) -
     references something he discussed before but you don't see it in the current thread."""
     try:
         from datetime import timedelta
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
 
         # Date cutoff
@@ -3525,7 +3539,7 @@ def list_recent_sessions(limit: int = 10) -> str:
     """List the most recent Tealc chat sessions with date, topic tags, and one-line summary.
     Useful for 'what did we work on this week'."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         rows = conn.execute(
             """
@@ -3560,7 +3574,7 @@ def get_latest_weekly_review() -> str:
     """Read the most recent weekly self-review briefing — Tealc's analysis of what worked
     and what didn't over the past week, with recommended rule changes."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT title, content_md, created_at FROM briefings "
@@ -3584,7 +3598,7 @@ def get_latest_quarterly_retrospective() -> str:
     """Read the most recent quarterly retrospective — Tealc's deep review of the past
     quarter's goal portfolio with recommendations."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT title, content_md, created_at FROM briefings "
@@ -3608,7 +3622,7 @@ def get_latest_nas_metrics() -> str:
     """Read the most recent NAS-metric snapshot: total citations, h-index, i10-index, top recent papers.
     Pulls from the nas_metrics table populated by the weekly track_nas_metrics job."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT snapshot_iso, total_citations, citations_since_2021, "
@@ -3653,7 +3667,7 @@ def nas_metrics_trend(weeks_back: int = 12) -> str:
     """Show citation/h-index/i10-index trends over the past N weeks. Returns markdown
     showing snapshot date, total_citations, h_index, i10_index, and the delta vs prior snapshot."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         rows = conn.execute(
             "SELECT snapshot_iso, total_citations, h_index, i10_index "
@@ -3711,7 +3725,7 @@ def _get_goals_db():
     """Return a WAL connection with goals tables guaranteed to exist."""
     from agent.jobs.sync_goals_sheet import _migrate_goals_tables  # noqa: PLC0415
     _migrate_goals_tables()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
@@ -4292,7 +4306,7 @@ def get_nas_impact_trend(weeks_back: int = 12) -> str:
     """Show NAS-impact percentages over the past N weeks. Returns markdown table:
     week | nas_trajectory% | service_drag% | maintenance% | unattributed% | top goal advanced."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         rows = conn.execute(
             "SELECT week_start_iso, nas_trajectory_pct, service_drag_pct, "
@@ -4322,7 +4336,7 @@ def get_nas_impact_trend(weeks_back: int = 12) -> str:
                         top_gid = max(breakdown, key=lambda k: breakdown[k])
                         # Try to resolve goal name from DB
                         try:
-                            conn2 = sqlite3.connect(DB_PATH)
+                            conn2 = sqlite3.connect(_db_path())
                             name_row = conn2.execute(
                                 "SELECT name FROM goals WHERE id=?", (top_gid,)
                             ).fetchone()
@@ -4353,7 +4367,7 @@ def list_goal_conflicts(unacknowledged_only: bool = True, days_back: int = 30) -
     Filter by unacknowledged or include all."""
     try:
         from datetime import timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
         if unacknowledged_only:
@@ -4399,7 +4413,7 @@ def acknowledge_goal_conflict(conflict_id: int, response: str = "") -> str:
     """Mark a goal-conflict as acknowledged. Optionally include Heath's response/decision
     (e.g., 'Yes, intentionally dropping NAS focus this week to support student crisis')."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT id, conflict_type, severity FROM goal_conflicts WHERE id=?",
@@ -4433,7 +4447,7 @@ def _get_projects_db():
     """Return a WAL connection with research_projects table guaranteed to exist."""
     from agent.jobs.sync_goals_sheet import _migrate_goals_tables  # noqa: PLC0415
     _migrate_goals_tables()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
@@ -4737,7 +4751,7 @@ def get_recent_literature_for_project(project_id: str, days_back: int = 14, limi
     assessment per paper."""
     try:
         from datetime import timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         since = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
         rows = conn.execute(
@@ -4775,7 +4789,7 @@ def list_recent_literature_notes(days_back: int = 7, limit: int = 30) -> str:
     Useful for 'what has Tealc been reading lately?'"""
     try:
         from datetime import timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         since = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
         rows = conn.execute(
@@ -4810,7 +4824,7 @@ def list_overnight_drafts(unreviewed_only: bool = True, limit: int = 10) -> str:
     """List grant/manuscript section drafts Tealc produced overnight, with links to
     review. Filter by unreviewed or include all."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         if unreviewed_only:
             rows = conn.execute(
@@ -4852,7 +4866,7 @@ def list_hypothesis_proposals(project_id: str = "", status: str = "proposed", li
     """List Tealc-proposed hypotheses. Filter by project_id or status (proposed|adopted|rejected).
     Returns markdown with hypothesis, rationale, proposed test, novelty + feasibility scores."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         tbl = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='hypothesis_proposals'"
@@ -4921,7 +4935,7 @@ def adopt_hypothesis(proposal_id: int, notes: str = "", override_gate: bool = Fa
         reason in notes and tags the human_review field)
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT id, project_id, hypothesis_md FROM hypothesis_proposals WHERE id=?",
@@ -5036,7 +5050,7 @@ def run_hypothesis_tournament(proposal_ids: str) -> str:
         if len(ids) > 6:
             return f"Tournament capped at 6 proposals; got {len(ids)}. Trim and retry."
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         items = []
         for pid in ids:
@@ -5075,7 +5089,7 @@ def reject_hypothesis(proposal_id: int, reason: str) -> str:
     if not reason or not reason.strip():
         return "Error: reason is required to reject a hypothesis."
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT id, project_id, hypothesis_md FROM hypothesis_proposals WHERE id=?",
@@ -5104,7 +5118,7 @@ def review_overnight_draft(draft_id: int, outcome: str, notes: str = "") -> str:
     if outcome not in valid_outcomes:
         return f"Invalid outcome '{outcome}'. Must be one of: accepted, rejected, rewritten"
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT id, drafted_section, project_id FROM overnight_drafts WHERE id=?",
@@ -5144,7 +5158,7 @@ def list_database_flags(sheet_name: str = "", weeks_back: int = 2, category: str
         cutoff_dt = datetime.now(timezone.utc) - timedelta(weeks=weeks_back)
         cutoff = cutoff_dt.isoformat()
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
 
         query_sql = (
@@ -5218,7 +5232,7 @@ def list_analysis_runs(project_id: str = "", weeks_back: int = 4) -> str:
     with date, project, exit_code, working_dir, and a 1-line interpretation excerpt."""
     try:
         from datetime import timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         since = (datetime.now(timezone.utc) - timedelta(weeks=weeks_back)).isoformat()
         if project_id:
@@ -5263,7 +5277,7 @@ def get_analysis_run_detail(analysis_id: int) -> str:
     """Full detail of one analysis: R code, stdout, stderr, working_dir, file list,
     full interpretation."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT id, project_id, run_iso, next_action_text, r_code, working_dir, "
@@ -5701,7 +5715,7 @@ def list_retrieval_quality(days: int = 7) -> str:
     and any entries with score <= 2 (low quality). Useful for diagnosing lit-search drift."""
     try:
         from datetime import timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = conn.execute(
@@ -5751,7 +5765,7 @@ def list_aquarium_audit(days: int = 30) -> str:
     Useful for checking whether the public activity feed has leaked private data."""
     try:
         from datetime import timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = conn.execute(
@@ -5840,7 +5854,7 @@ def list_preference_signals(days: int = 30) -> str:
     grouped by signal_type and target_kind. Feeds into weekly preference consolidation."""
     try:
         from datetime import timedelta  # noqa: PLC0415
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = conn.execute(
@@ -5892,7 +5906,7 @@ def record_preference_signal(
     if target_kind not in valid_target_kinds:
         return f"Invalid target_kind '{target_kind}'. Must be one of: {', '.join(sorted(valid_target_kinds))}"
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         now_iso = datetime.now(timezone.utc).isoformat()
         conn.execute(
@@ -5944,7 +5958,7 @@ def export_state_to_sheet(tab_name: str = "all") -> str:
     if err:
         return f"Sheets API not connected: {err}"
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.execute("PRAGMA journal_mode=WAL")
 
     def _rows(table: str, cols: list[str]) -> list[list]:
@@ -6045,7 +6059,7 @@ def respond_to_review_invitation(briefing_id: int = 0, decision: str = "review")
     Never auto-sends — always returns draft content for Heath to approve.
     Enforces Heath's service-protection rule: defaults to 'decline' posture unless Heath explicitly overrides."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
 
         if briefing_id == 0:
@@ -6257,7 +6271,7 @@ def enter_war_room(project_id: str) -> str:
     saying 'exit war room' when done."""
     try:
         import sqlite3 as _sql  # noqa: PLC0415
-        conn = _sql.connect(DB_PATH)
+        conn = _sql.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
         proj = conn.execute(
             "SELECT id, name, description, current_hypothesis, next_action, data_dir, "
@@ -7122,7 +7136,7 @@ def list_pending_preregs() -> str:
     except ImportError:
         from pathlib import Path
         DB_PATH = str(Path(__file__).parent.parent / "data" / "agent.db")
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     rows = conn.execute(
         "SELECT id, hypothesis_md, prereg_published_at, prereg_test_json FROM hypothesis_proposals "
         "WHERE prereg_published_at IS NOT NULL AND adjudicated_at IS NULL ORDER BY prereg_published_at ASC"
@@ -7146,7 +7160,7 @@ def get_prereg_outcome(hypothesis_id: int) -> str:
     except ImportError:
         from pathlib import Path
         DB_PATH = str(Path(__file__).parent.parent / "data" / "agent.db")
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM hypothesis_proposals WHERE id=?", (hypothesis_id,)).fetchone()
     conn.close()
@@ -7169,7 +7183,7 @@ def list_reviewer_invitations(status: str = "") -> str:
     except ImportError:
         from pathlib import Path
         DB_PATH = str(Path(__file__).parent.parent / "data" / "agent.db")
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     if status:
         rows = conn.execute("SELECT id, reviewer_pseudonym, domain, status, sla_iso, sent_at FROM reviewer_invitations WHERE status=? ORDER BY created_at DESC", (status,)).fetchall()
     else:
@@ -7186,13 +7200,43 @@ def get_reviewer_correlation(domain: str = "") -> str:
     except ImportError:
         from pathlib import Path
         DB_PATH = str(Path(__file__).parent.parent / "data" / "agent.db")
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_db_path())
     if domain:
         rows = conn.execute("SELECT computed_at, domain, dimension, n_pairs, spearman_r, bootstrap_ci_lo, bootstrap_ci_hi FROM reviewer_correlations WHERE domain=? ORDER BY computed_at DESC LIMIT 20", (domain,)).fetchall()
     else:
         rows = conn.execute("SELECT computed_at, domain, dimension, n_pairs, spearman_r, bootstrap_ci_lo, bootstrap_ci_hi FROM reviewer_correlations ORDER BY computed_at DESC LIMIT 20").fetchall()
     conn.close()
     return _json.dumps([{"computed_at": r[0], "domain": r[1], "dimension": r[2], "n_pairs": r[3], "spearman_r": r[4], "ci_lo": r[5], "ci_hi": r[6]} for r in rows])
+
+
+@tool
+def start_project_session(project_id: str) -> str:
+    """Load the continuity artifacts for a research project. Returns the project's
+    current hypothesis, next action, full progress log, and feature checklist so a
+    new agent session can pick up exactly where the last one left off. Pass the
+    project's id string (e.g. 'p_002'). Implements Anthropic's multi-session
+    harness pattern — call this at the START of any extended work session on a
+    specific project."""
+    import json as _json
+    from agent.project_sessions import start_project_session as _start  # noqa: PLC0415
+    return _json.dumps(_start(project_id), indent=2, default=str)
+
+
+@tool
+def end_project_session(
+    project_id: str,
+    completed_md: str = "",
+    remaining_md: str = "",
+    notes_md: str = "",
+) -> str:
+    """Close a research project session by appending a timestamped entry to its
+    progress log and updating the project's last-touched timestamp. Provide brief
+    markdown strings for what was completed, what remains, and any notes. Returns
+    confirmation with the path of the updated progress.md file. Call this at the
+    END of any extended work session — pairs with start_project_session."""
+    import json as _json
+    from agent.project_sessions import end_project_session as _end  # noqa: PLC0415
+    return _json.dumps(_end(project_id, completed_md, remaining_md, notes_md), indent=2, default=str)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -7395,4 +7439,7 @@ def get_all_tools():
         list_grants,
         # Lab drive layout
         list_lab_drive_root,
+        # Multi-session project continuity (Anthropic harness pattern)
+        start_project_session,
+        end_project_session,
     ]

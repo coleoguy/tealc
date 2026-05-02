@@ -8,10 +8,11 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
+from agent.scheduler import DB_PATH as _DB_PATH
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.normpath(os.path.join(_HERE, ".."))
 _DATA = os.path.normpath(os.path.join(_HERE, "..", "data"))
-_DB_PATH = os.path.join(_DATA, "agent.db")
 
 
 # ---------------------------------------------------------------------------

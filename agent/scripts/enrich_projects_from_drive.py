@@ -42,7 +42,7 @@ except ImportError:
 
 import anthropic  # noqa: E402 (must come after dotenv load)
 
-DB_PATH = os.path.join(_ROOT, "data", "agent.db")
+from agent.scheduler import DB_PATH  # noqa: E402
 
 # Lab shared drive / Projects folder
 LAB_DRIVE = "0AKI1NlwWUostUk9PVA"

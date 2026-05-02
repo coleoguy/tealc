@@ -18,7 +18,8 @@ import sys
 from datetime import datetime, timezone
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.normpath(os.path.join(_HERE, "..", "data", "agent.db"))
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..")))
+from agent.scheduler import DB_PATH  # noqa: E402
 
 
 def main(apply: bool) -> int:

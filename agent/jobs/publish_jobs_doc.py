@@ -44,7 +44,7 @@ _OUTPUT_HTML = _ROOT / "public" / "jobs.html"
 _SCHEDULER_PY = _AGENT / "scheduler.py"
 
 # DB for output_ledger tracking (optional — graceful if absent)
-_DB_PATH = _ROOT / "data" / "agent.db"
+from agent.scheduler import DB_PATH as _DB_PATH
 
 
 # ---------------------------------------------------------------------------
