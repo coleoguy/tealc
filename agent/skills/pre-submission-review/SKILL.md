@@ -65,19 +65,33 @@ guide-for-authors?"
 
 ## Output contract
 
-Single primary output: **`<dir>/<stem>_pre-submission.docx`**
+Heath's manuscripts live in Google Docs. The Google Docs API does NOT
+support creating suggestions programmatically — only direct edits and
+comments — so the closest equivalent of a Word "tracked changes" review
+uses **copy + edit + Compare-documents**:
 
-The docx contains the original manuscript text with:
+1. **A new Google Doc named `<original-title>_review_<YYYY-MM-DD>`**,
+   placed in the same Drive folder as the manuscript. This is a copy
+   of the original with all TEXT_REPLACE / INSERT / DELETE findings
+   applied as direct edits, plus margin comments for every COMMENT
+   finding.
 
-- **Tracked changes** (insertion / deletion / replacement) for every
-  TEXT_REPLACE / INSERT / DELETE finding. Heath can accept or reject
-  each one in Word with a single click.
-- **Margin comments** for every COMMENT finding. Anchored to the relevant
-  text range. Comment text follows the structure documented below.
+2. **A sidecar `<dir>/<stem>_pre-submission-summary.md`** — a one-page
+   narrative summary of the major issues, severity-ranked, for Heath to
+   scan before opening the review copy.
 
-A secondary file **`<dir>/<stem>_pre-submission-summary.md`** is also
-produced — a one-page narrative summary of the major issues, severity-
-ranked, for Heath to scan before opening the docx.
+After both files are written, Heath opens the review copy in Google Docs
+and uses **Tools → Compare documents** with the original selected as the
+"compare with" target. This produces a proper visual diff with change
+marks at every edit point — the Google Docs equivalent of Word's tracked
+changes. Comments anchor naturally and appear in the margin.
+
+**If the input is a `.docx` file (not a Google Doc):** alternative path
+documented in the "Format normalization" phase below — at present, the
+chat agent doesn't have a Word-format tracked-changes generator tool
+(would require python-docx + lxml OOXML wrangling); the fallback for
+`.docx` input is to upload it to Drive as a Google Doc first, then
+follow the same copy-edit-compare flow.
 
 ## Reference bundle
 
@@ -129,12 +143,39 @@ The Adversarial Reader gets an additional preamble:
 ## Architecture (8-agent pipeline)
 
 ```
-Phase 0: Format normalization (inline)
-  - .docx input  → keep as-is, extract text for analysis
-  - .pdf input   → extract text via pdfplumber; convert to .docx as the
-                   working copy via anthropic-skills:docx
-  - .md/.tex input → convert to .docx via anthropic-skills:docx
-  - Save working copy to <dir>/.pre-submission-review/working.docx
+Phase 0: Format identification + normalization (inline)
+  Input shape determines the output workflow:
+
+  - **.gdoc shortcut** (most common — Heath's manuscripts live in
+    Google Docs)
+      → read content via read_local_file (which dispatches .gdoc to
+        the Drive API export-as-text path)
+      → output workflow = copy-edit-compare (see Phase 6)
+      → record source_doc_id for the copy step
+
+  - **.docx file**
+      → extract text via read_local_file
+      → ASK Heath whether to:
+          (a) upload to Drive as a Google Doc and use the standard
+              copy-edit-compare flow, OR
+          (b) write a markdown review only (no inline edits — the chat
+              agent does not currently have a Word-format tracked-
+              changes generator; that is a known gap)
+      → output workflow depends on the answer
+
+  - **.pdf file** (e.g. typeset preprint)
+      → extract text via read_local_file (uses pypdf)
+      → no inline edits possible (the source is read-only typeset PDF)
+      → output workflow = markdown review file only
+      → tell Heath this in Phase 7 so he is not surprised
+
+  - **.md / .tex file**
+      → read content directly
+      → output workflow = markdown review file only
+
+  Save analysis state to <dir>/.pre-submission-review/state.json
+  including {input_format, source_doc_id (if Google Doc),
+  output_workflow}.
 
 Phase 1: Coordinator (Sonnet, in-line)
   - Read the working manuscript end-to-end.
@@ -229,17 +270,77 @@ Phase 5: Voice-match pass (Sonnet — uses the voice-matching skill)
     final paper; they go in margin balloons that Heath will read and
     rewrite if needed).
 
-Phase 6: Generate output
-  - Use anthropic-skills:docx to apply changes to working.docx:
-    - For each TEXT_REPLACE: tracked deletion of old_text + tracked
-      insertion of new_text
-    - For each INSERT: tracked insertion at the location anchor
-    - For each DELETE: tracked deletion of old_text
-    - For each COMMENT: insert a Word comment anchored to the
-      location_quote range, with the comment body
-  - Save to <dir>/<stem>_pre-submission.docx
-  - Also write the summary to <dir>/<stem>_pre-submission-summary.md
-  - Update state.json phase=complete
+Phase 6: Generate output — branches on Phase 0's output_workflow
+
+  ─────────────────────────────────────────────────────────────────────
+  WORKFLOW A: copy-edit-compare (Google Doc input — most common)
+  ─────────────────────────────────────────────────────────────────────
+
+  1. Copy the manuscript via `copy_google_doc(source_doc_id, new_title)`
+     where new_title is `<original-title>_review_<YYYY-MM-DD>`. Place in
+     the same Drive folder as the source. Save the new doc ID in
+     state.json.
+
+  2. For each TEXT_REPLACE finding, call `replace_in_google_doc(
+        doc_id=<new-id>, find=<old_text>, replace=<new_text>,
+        all_occurrences=False, confirmed=True)`. Use confirmed=True
+     directly — the Refiner already verified each old_text is unique
+     and unambiguously anchored. Apply in document order (top-to-bottom)
+     to keep edits stable.
+
+  3. For each INSERT finding, append the new_text at the appropriate
+     location. The `replace_in_google_doc` tool can do "insert before
+     X" by passing find=X and replace=`<new_text>X`; or use
+     `append_to_google_doc` for end-of-section additions. Document
+     each insertion in the comment body too so the Compare-documents
+     diff is self-explanatory.
+
+  4. For each DELETE finding, call `replace_in_google_doc(
+        find=<old_text>, replace="", confirmed=True)`.
+
+  5. For each COMMENT finding, call `insert_comment_in_google_doc(
+        doc_id=<new-id>, anchor_text=<location_quote>,
+        comment=<severity_prefix + comment_body>)` where
+     severity_prefix is "**[BLOCKING]**" / "[Should fix]" / "[Polish]".
+
+  6. Write the sidecar summary to <dir>/<stem>_pre-submission-summary.md
+     with the finding-counts header (BLOCKING / SHOULD_FIX / POLISH
+     totals) and a narrative of the top issues.
+
+  7. Tell Heath the review-copy URL AND that he should open it in
+     Google Docs and use **Tools → Compare documents**, selecting the
+     original as the comparison target. The diff with proper change
+     marks will render automatically. Comments will be visible in the
+     margin.
+
+  ─────────────────────────────────────────────────────────────────────
+  WORKFLOW B: markdown review only (.pdf / .md / .tex input, or
+  .docx where Heath chose option (b))
+  ─────────────────────────────────────────────────────────────────────
+
+  Write a single markdown file `<dir>/<stem>_pre-submission-review.md`
+  organized by severity, then by section. For each finding:
+
+      ## [BLOCKING] Methods §2.3 — sample size
+      **Anchor:** "across 61 species in our dataset"
+
+      **Issue:** Power analysis is missing for the BiSSE comparison.
+
+      **Suggested fix (TEXT_REPLACE):**
+      OLD: across 61 species in our dataset
+      NEW: across 61 species (post-hoc power = 0.78 for D=0.10) in
+           our dataset
+
+      **Why this matters (reviewer 2):** Reviewer 2 will ask why
+      you're doing BiSSE on 61 species without a power analysis…
+
+  Group all TEXT_REPLACE / INSERT / DELETE findings under a "Suggested
+  edits" subsection per anchor, and all COMMENT findings under
+  "Discussion points." Heath applies the edits manually.
+
+  ─────────────────────────────────────────────────────────────────────
+
+  Update state.json phase=complete with the output paths/URLs.
 
 Phase 7: Tell Heath what happened
   - One-paragraph summary: # of tracked changes, # of comments,
@@ -328,8 +429,9 @@ That's a HEADS-UP, not a drop — the docx still contains every finding.
 ## Cost / latency
 
 Same as paper-reviewer: ~$1.00–1.50 per review, 5–10 minutes wall clock
-with parallel dispatch. Plus the docx generation step (~$0.05 in
-anthropic-skills:docx model calls + a few seconds compute).
+with parallel dispatch. The output step (copy + N×replace + M×comment
+Drive API calls) adds a few seconds and ~$0 (Drive API is free; no
+extra LLM tokens).
 
 ## Resumability
 

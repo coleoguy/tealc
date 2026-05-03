@@ -2189,6 +2189,56 @@ def _insert_markdown(docs, doc_id: str, text: str, index: int = 1):
 
 
 @tool
+def copy_google_doc(
+    source_doc_id: str,
+    new_title: str,
+    dest_folder_id: str = "",
+) -> str:
+    """Copy an existing Google Doc, returning the new doc's ID and URL.
+
+    Use this to make an editable review copy of a manuscript without
+    touching the original. After copying, you can apply tracked-changes-
+    style edits to the copy via replace_in_google_doc (with confirmed=True)
+    and add margin comments via insert_comment_in_google_doc. The user
+    can then open the copy and use **Tools → Compare documents → select
+    the original** to see a proper visual diff with change marks — the
+    Google Docs equivalent of Word tracked changes.
+
+    The Google Docs API does NOT support creating suggestions
+    programmatically (only direct edits and comments), so this
+    copy-edit-compare flow is the closest equivalent achievable.
+
+    source_doc_id: Drive file ID of the source doc (NOT a URL — strip the
+        "https://docs.google.com/document/d/" prefix and "/edit" suffix
+        before passing).
+    new_title: title for the new doc.
+    dest_folder_id: optional folder ID to place the copy in. Default is
+        the same folder as the source.
+    """
+    service, err = _get_google_service("drive", "v3")
+    if err:
+        return f"Drive not connected: {err}"
+    try:
+        body: dict = {"name": new_title}
+        if dest_folder_id:
+            body["parents"] = [dest_folder_id]
+        new_file = service.files().copy(
+            fileId=source_doc_id,
+            body=body,
+            supportsAllDrives=True,
+            fields="id,webViewLink,name,parents",
+        ).execute()
+        return (
+            f"Copied to: **{new_file.get('name')}**\n"
+            f"- New doc ID: `{new_file.get('id')}`\n"
+            f"- Open: {new_file.get('webViewLink', '(no link)')}\n"
+            f"- Parent folder: {(new_file.get('parents') or ['(unknown)'])[0]}"
+        )
+    except Exception as e:
+        return f"Error copying doc: {type(e).__name__}: {str(e)[:200]}"
+
+
+@tool
 def create_google_doc(title: str, body_markdown: str = "", parent_folder_id: str = "") -> str:
     """Create a new Google Doc with optional initial markdown content.
     parent_folder_id defaults to the Tealc Drafts folder from config.
@@ -7391,6 +7441,7 @@ def get_all_tools():
         get_datetime,
         # Task 5 — Google Docs write-back
         create_google_doc,
+        copy_google_doc,
         append_to_google_doc,
         replace_in_google_doc,
         insert_comment_in_google_doc,
