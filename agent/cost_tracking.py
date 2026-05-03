@@ -134,8 +134,31 @@ def _normalize_usage(usage: "Usage | dict", model: str) -> "Usage":
     return fu  # type: ignore[return-value]
 
 
-def _compute_cost(usage: "Usage") -> float:
-    """Return estimated USD cost for a single API call, vendor-aware."""
+def _compute_cost(usage_or_model, usage_dict_or_none=None) -> float:
+    """Return estimated USD cost for a single API call, vendor-aware.
+
+    Accepts EITHER signature for backward compatibility:
+
+      new — _compute_cost(usage: Usage)
+        Used by record_call() internally and by any new code written
+        against the F3 vendor-portable shim.
+
+      legacy — _compute_cost(model: str, usage_dict: dict)
+        Used by ~7 existing job/subagent call sites that predate F3
+        (subagents.py, surface_composer.py, method_promoter.py,
+        extract_heath_claims.py, gloss_harvester.py). Removing those
+        callers' 2-arg form would have churned 7 files; this shim
+        accepts both forms with no behavior change for either.
+
+    The legacy form is funneled through _normalize_usage to produce a
+    canonical Usage; from there the pricing math is identical.
+    """
+    # Legacy 2-arg form: (model: str, usage_dict: dict)
+    if isinstance(usage_or_model, str):
+        usage = _normalize_usage(usage_dict_or_none or {}, usage_or_model)
+    else:
+        usage = usage_or_model
+
     model_key = (getattr(usage, "model", "") or "").lower()
     prices = _PRICING_USD_PER_M_TOKENS.get(model_key)
     if prices is None:
