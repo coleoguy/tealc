@@ -406,6 +406,12 @@ DRIVE_ROOT = os.environ.get(
     str(os.path.expanduser("~/Library/CloudStorage/GoogleDrive/My Drive")),
 )
 
+# Lab-agent install root — used as a fallback resolution base for relative
+# paths in `read_local_file`. The system prompt's <skills> stanza, the
+# `agent/...` references in tool docstrings, and any other lab-internal
+# relative paths resolve from here, not from the (broader) Drive root.
+LAB_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 @tool
 def read_lab_website() -> str:
@@ -424,14 +430,38 @@ def read_lab_website() -> str:
 @tool
 def read_local_file(path: str, max_chars: int = 25000) -> str:
     """Read any file from Heath's computer. Supports plain text, .docx, and .pdf.
-    For Google Drive files, path can be relative to the Drive root
-    (e.g. '01-Grants/google_grant_draft.docx') or an absolute path.
-    Use this to read grant drafts, manuscripts, notes, or any document Heath wants
-    you to review or help edit."""
+
+    Path resolution for relative paths (no leading '/'):
+      1. Try DRIVE_ROOT-relative first (e.g. '01-Grants/foo.docx' →
+         ~/Library/CloudStorage/.../My Drive/01-Grants/foo.docx). This is
+         the historical user-facing convention for grant drafts and
+         manuscripts living under the broader Drive.
+      2. Fall back to LAB_ROOT-relative (e.g.
+         'agent/skills/paper-reviewer/SKILL.md' →
+         <lab-install>/agent/skills/paper-reviewer/SKILL.md). This is the
+         convention used inside the system prompt's <skills> stanza and
+         in agent-internal references.
+
+    Absolute paths (starting with '/') are used as-is.
+
+    Use this to read grant drafts, manuscripts, notes, agent skill bundles,
+    or any document Heath wants you to review or help edit."""
     try:
-        # Allow relative paths from Drive root
+        # Resolve relative paths: try Drive root first, then lab root.
         if not path.startswith("/"):
-            path = os.path.join(DRIVE_ROOT, path)
+            drive_candidate = os.path.join(DRIVE_ROOT, path)
+            if os.path.exists(drive_candidate):
+                path = drive_candidate
+            else:
+                lab_candidate = os.path.join(LAB_ROOT, path)
+                if os.path.exists(lab_candidate):
+                    path = lab_candidate
+                else:
+                    return (
+                        f"File not found: {path!r}\n"
+                        f"  tried Drive root: {drive_candidate}\n"
+                        f"  tried lab root:   {lab_candidate}"
+                    )
         if not os.path.exists(path):
             return f"File not found: {path}\nDrive root is: {DRIVE_ROOT}"
         ext = os.path.splitext(path)[1].lower()
