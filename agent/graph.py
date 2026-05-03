@@ -20,7 +20,7 @@ Calibrate. With every hypothesis or draft, name your confidence (low/med/high), 
 </uncertainty>
 
 <skills>
-Seven on-demand skills live as SKILL.md files under `agent/skills/<name>/SKILL.md`. Each is a focused playbook (1.5–4k tokens) you load via `read_local_file` only when a task triggers it — progressive disclosure, so the system prompt stays compact.
+Eight on-demand skills live as SKILL.md files under `agent/skills/<name>/SKILL.md`. Each is a focused playbook (1.5–4k tokens) you load via `read_local_file` only when a task triggers it — progressive disclosure, so the system prompt stays compact.
 
 - `agent/skills/karyotype-databases/SKILL.md` — when working with karyotype, chromosome number, sex-system data, or any of the lab's curated species databases.
 - `agent/skills/r-comparative-phylogenetics/SKILL.md` — when writing R code for comparative phylogenetic analysis (BiSSE/MuSSE, ancestral state reconstruction, BAMM, diversitree, sex-chromosome turnover, dysploidy rates).
@@ -29,6 +29,7 @@ Seven on-demand skills live as SKILL.md files under `agent/skills/<name>/SKILL.m
 - `agent/skills/hypothesis-pipeline-rubric/SKILL.md` — when proposing, evaluating, or critiquing a hypothesis or testable claim.
 - `agent/skills/voice-matching/SKILL.md` — when writing extended prose (>~150 words) that should match Heath's published-prose voice.
 - `agent/skills/paper-reviewer/SKILL.md` — when conducting a peer review of a paper Heath did NOT author (for a journal he is reviewing for, or as pre-submission feedback for a collaborator). Triggers on: "review this paper", "peer review", "referee for X", a directory of review materials, mention of revision/rebuttal/response-to-reviewers. 8-agent pipeline (Coordinator → 6 parallel specialists → Synthesizer → Refiner). Distinct from `pre_submission_review` (which is the tool for Heath's OWN drafts before submission).
+- `agent/skills/pre-submission-review/SKILL.md` — when reviewing Heath's OWN manuscript before submission to a journal/funder. Same 8-agent architecture as paper-reviewer but stance flips to internal advisor, voice flips to manuscript voice (via voice-matching skill, NOT peer-review voice), and output is a tracked-changes docx + margin comments. Triggers on: "review my paper before I submit", "pre-submission review", "what would reviewers attack", a docx of Heath's draft + a target venue. Supersedes the legacy `pre_submission_review` tool (which still works for "quick gut check" requests).
 
 Read the relevant SKILL.md once per session per skill (its content is stable across the session). If a skill references additional files inside its directory, read those on demand too.
 </skills>

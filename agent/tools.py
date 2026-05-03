@@ -6231,10 +6231,18 @@ def propose_data_dir(project_id: str) -> str:
 
 @tool
 def pre_submission_review(doc_text: str, venue: str = "journal_generic") -> str:
-    """Run 3 reviewer personas (methodologist, domain_expert, skeptic) on a draft before
-    submission. Returns per-persona scores + concerns + blocking issues, plus a consensus
-    summary. Use when Heath asks for a critique of a manuscript, grant section, or reviewer
-    response. venue options: 'journal_generic', 'nature_tier', 'MIRA_study_section',
+    """Quick single-shot pre-submission review. 3 reviewer personas (methodologist,
+    domain_expert, skeptic) on draft text. Returns per-persona scores + concerns +
+    blocking issues, plus a consensus summary as markdown.
+
+    Use this tool ONLY for "quick gut check" requests — the full multi-agent
+    treatment lives in `agent/skills/pre-submission-review/SKILL.md` and produces
+    a tracked-changes docx with margin comments. If Heath gave you a manuscript
+    file (.docx/.pdf) and a target venue, prefer the skill — `read_local_file`
+    that SKILL.md and follow it. Use this tool only when Heath pastes raw text
+    inline and asks for a fast critique without going through the docx workflow.
+
+    venue options: 'journal_generic', 'nature_tier', 'MIRA_study_section',
     'NSF_DEB', 'google_org_grant'."""
     try:
         from agent.submission_review import pre_submission_review as _review  # noqa: PLC0415
