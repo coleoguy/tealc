@@ -26,4 +26,14 @@ echo ""
 # doesn't change — that would cause chainlit to reload every minute or two,
 # clearing your active chat session.  Re-enable -w only during local
 # development, and only when the repo is outside Drive.
-PYTHONPATH="$SCRIPT_DIR" chainlit run app.py --port 8000 -h
+#
+# Output goes to BOTH this Terminal (so status is visible live) AND an
+# append-only log file under AppSupport (so debugging doesn't depend on
+# the Terminal window still being open). `tee -a` appends — clear the
+# file manually when it gets too big.
+CHAINLIT_LOG="$HOME/Library/Application Support/tealc/chainlit.log"
+mkdir -p "$(dirname "$CHAINLIT_LOG")"
+echo "Chainlit logs → $CHAINLIT_LOG"
+echo "  tail -f \"$CHAINLIT_LOG\"   from another shell to follow"
+echo ""
+PYTHONPATH="$SCRIPT_DIR" chainlit run app.py --port 8000 -h 2>&1 | tee -a "$CHAINLIT_LOG"

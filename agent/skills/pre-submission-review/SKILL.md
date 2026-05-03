@@ -1,28 +1,69 @@
 ---
 name: pre-submission-review
 description: >
-  Pre-submission review of a manuscript Heath authored or co-authored, before
-  it goes to a journal or funder. Same multi-agent architecture as
+  Pre-submission review of a manuscript Heath authored or co-authored,
+  before it goes to a journal or funder. The output is ALWAYS a Google
+  Doc copy of the manuscript with visible inline review markup (red
+  strikethrough for old text + red insertion for new text — both visible
+  side-by-side) plus margin comments. NEVER a journal-style prose review
+  written into a fresh blank doc. Same multi-agent architecture as
   paper-reviewer (Coordinator → 6 parallel specialists → Synthesizer →
-  Refiner) but with three critical inversions: stance is INTERNAL ADVISOR
-  ("find issues so you can fix them, not so a reviewer can score them"),
-  voice is HEATH'S MANUSCRIPT voice (not his peer-review voice), and output
-  is a TRACKED-CHANGES DOCX — small surgical edits land as Word tracked
-  changes, larger structural issues land as Word margin comments. Heath
-  gets back a docx he can open in Word, accept/reject each tracked change,
-  resolve each comment, and save as the next revision. TRIGGER on:
-  "review my paper before I submit", "pre-submission review", "what would
-  reviewers attack", "I'm sending this to <journal> next week, look it
-  over", a docx of Heath's draft + a target venue. Distinct from
-  `paper-reviewer` (which is Heath reviewing SOMEONE ELSE's paper for a
-  journal) and from the legacy single-shot `pre_submission_review` tool
-  (which still exists for "quick gut check" requests).
+  Refiner) with three critical inversions: stance is INTERNAL ADVISOR
+  ("find issues so the author can fix them, not so a reviewer can score
+  them"), voice is HEATH'S MANUSCRIPT voice (NOT peer-review voice),
+  output is a marked-up copy via mark_changes_in_google_doc +
+  insert_comment_in_google_doc on a doc made by copy_google_doc.
+
+  TRIGGER on any phrasing where Heath wants HIS OWN manuscript reviewed
+  before submission. All of these route here:
+    "review my paper before I submit"
+    "pre-submission review"
+    "review the <topic> manuscript" / "review the manuscript for <project>"
+    "give me a critique of my draft"
+    "what would reviewers attack"
+    "look this over before I send to <journal>"
+    "I'm sending this to <journal> next week, look it over"
+    Any review request where the manuscript lives in Heath's
+    `Projects/` folder structure (vs. a `~/reviews/<journal>/` directory)
+
+  Distinct from `paper-reviewer` (which is Heath reviewing SOMEONE
+  ELSE's paper that came in via a journal — materials typically in
+  `~/reviews/<journal>/`, NOT in `Projects/`). **Default rule when
+  ambiguous: if the source file lives in any subdirectory of Heath's
+  `Projects/` folder, use this skill, not paper-reviewer.** Distinct
+  from the legacy `pre_submission_review` tool (single-shot, returns
+  markdown — kept only for "quick gut check" requests on inline-pasted
+  text without a file path).
 ---
 
 # Pre-Submission Review (TEALC)
 
+## ⚠ MUST READ — output enforcement
+
+The output of this skill is **ALWAYS** a Google Doc copy of Heath's
+manuscript with visible inline markup + margin comments. There are
+exactly two output paths (workflow A primary, workflow A-fallback if
+the markup tool is unavailable for any reason). Both produce a
+**marked-up copy of the manuscript itself**.
+
+**Do NOT write a fresh Google Doc with a journal-style prose review.**
+That is what the `paper-reviewer` skill produces, and it is the wrong
+output for pre-submission. If the multi-agent pipeline succeeds but
+you cannot produce inline markup or comments on a copy, STOP and ask
+Heath for guidance — do not silently fall through to a prose-review
+document.
+
+If subagent dispatch fails (cost-tracking error, parallel-call error,
+etc.): degrade to a **sequential** specialist pass on the same agent
+prompts (you, the chat agent, plays each specialist role one at a time
+in-context), then proceed with the SAME output workflow (copy + markup
++ comments). Sequential pass is slower but produces the right output
+shape. Do NOT use subagent failure as a reason to skip the markup step.
+
+## What you do
+
 Help Heath find every problem reviewers will find — before reviewers find
-them. The output is a docx Heath can open in Word, where every issue is
+them. The output is a marked-up copy of Heath's manuscript where every issue is
 either a one-click-acceptable tracked change or a margin comment with a
 clear ask.
 
