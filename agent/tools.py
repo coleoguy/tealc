@@ -491,8 +491,9 @@ def read_lab_website() -> str:
 
 
 @tool
-def read_local_file(path: str, max_chars: int = 25000) -> str:
-    """Read any file from Heath's computer. Supports plain text, .docx, and .pdf.
+def read_local_file(path: str, max_chars: int = 200000) -> str:
+    """Read any file from Heath's computer. Supports plain text, .docx, .pdf,
+    and Google Drive shortcuts (.gdoc / .gsheet / .gslides).
 
     Path resolution for relative paths (no leading '/'):
       1. Try DRIVE_ROOT-relative first (e.g. '01-Grants/foo.docx' →
@@ -506,6 +507,13 @@ def read_local_file(path: str, max_chars: int = 25000) -> str:
          in agent-internal references.
 
     Absolute paths (starting with '/') are used as-is.
+
+    The default `max_chars=200000` is sized for typical full manuscripts
+    (60-100K chars including supplement). It's deliberately large so a
+    single call returns the whole document — the previous default of 25K
+    forced the agent to loop and retry for manuscript-class documents,
+    wasting time. For very large docs (book-length), pass a higher
+    max_chars or read in sections.
 
     Use this to read grant drafts, manuscripts, notes, agent skill bundles,
     or any document Heath wants you to review or help edit."""
@@ -549,8 +557,9 @@ def read_local_file(path: str, max_chars: int = 25000) -> str:
         if len(content) > max_chars:
             return (
                 content[:max_chars]
-                + f"\n\n[Truncated at {max_chars} of {len(content)} chars. "
-                f"Use a smaller section or ask for specific content.]"
+                + f"\n\n[Truncated at {max_chars:,} of {len(content):,} chars. "
+                f"To get the rest, call read_local_file again with "
+                f"max_chars={len(content)} (or any value ≥ the file size).]"
             )
         return content
     except Exception as e:
@@ -1156,9 +1165,11 @@ def search_drive(query: str, max_results: int = 10) -> str:
 
 
 @tool
-def read_drive_file(file_id: str) -> str:
+def read_drive_file(file_id: str, max_chars: int = 200000) -> str:
     """Read the text content of a Google Drive file by its ID (from search_drive results).
-    Works with Google Docs, plain text, and exported formats."""
+    Works with Google Docs, plain text, and exported formats. Default max_chars
+    is sized for typical full manuscripts (60-100K chars including supplement)
+    so a single call returns the whole document."""
     service, err = _get_google_service("drive", "v3")
     if err:
         return f"Drive not connected: {err}"
@@ -1186,8 +1197,14 @@ def read_drive_file(file_id: str) -> str:
         else:
             return f"File '{meta['name']}' is type {mime} — can read Google Docs, .docx, and text files."
 
-        if len(text) > 15000:
-            return text[:15000] + f"\n\n[Truncated. Full length: {len(text)} chars]"
+        if len(text) > max_chars:
+            return (
+                f"**{meta['name']}**\n\n"
+                + text[:max_chars]
+                + f"\n\n[Truncated at {max_chars:,} of {len(text):,} chars. "
+                f"To get the rest, call read_drive_file again with "
+                f"max_chars={len(text)} (or any value ≥ the file size).]"
+            )
         return f"**{meta['name']}**\n\n{text}"
     except Exception as e:
         return f"Error reading file: {e}"
