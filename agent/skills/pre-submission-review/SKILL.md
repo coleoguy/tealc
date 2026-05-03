@@ -273,45 +273,94 @@ Phase 5: Voice-match pass (Sonnet — uses the voice-matching skill)
 Phase 6: Generate output — branches on Phase 0's output_workflow
 
   ─────────────────────────────────────────────────────────────────────
-  WORKFLOW A: copy-edit-compare (Google Doc input — most common)
+  WORKFLOW A: visible review markup on a copy (Google Doc input — most common)
   ─────────────────────────────────────────────────────────────────────
 
-  1. Copy the manuscript via `copy_google_doc(source_doc_id, new_title)`
-     where new_title is `<original-title>_review_<YYYY-MM-DD>`. Place in
-     the same Drive folder as the source. Save the new doc ID in
-     state.json.
+  Goal: produce a review-copy of the manuscript where every proposed
+  change is visible inline in red — old text marked red+strikethrough,
+  new text appended in red right after, both kept readable side-by-side.
+  This is the closest visible equivalent to Word tracked changes that
+  the Google Docs API supports (the API does NOT allow programmatic
+  creation of suggestion-mode markups; that's a UI-only feature).
 
-  2. For each TEXT_REPLACE finding, call `replace_in_google_doc(
-        doc_id=<new-id>, find=<old_text>, replace=<new_text>,
-        all_occurrences=False, confirmed=True)`. Use confirmed=True
-     directly — the Refiner already verified each old_text is unique
-     and unambiguously anchored. Apply in document order (top-to-bottom)
-     to keep edits stable.
+  1. **Copy the manuscript.** Call:
+       copy_google_doc(
+         source_doc_id=<source-id>,
+         new_title="<original-title>_review_<YYYY-MM-DD>",
+       )
+     Place in the same Drive folder as the source. Save the returned
+     new doc ID in state.json.
 
-  3. For each INSERT finding, append the new_text at the appropriate
-     location. The `replace_in_google_doc` tool can do "insert before
-     X" by passing find=X and replace=`<new_text>X`; or use
-     `append_to_google_doc` for end-of-section additions. Document
-     each insertion in the comment body too so the Compare-documents
-     diff is self-explanatory.
+  2. **Apply visible markup.** Build a JSON array of changes from the
+     refiner's TEXT_REPLACE / INSERT / DELETE findings, then ONE call:
+       mark_changes_in_google_doc(
+         doc_id=<new-id>,
+         changes_json=<JSON list>,
+         color="red",
+       )
+     The tool is best-effort — if any individual change fails (e.g.
+     old_text not found verbatim because of subtle formatting), it
+     reports which ones failed in its return string. **For every
+     failed change, fall through to step 3** (add a comment with
+     the proposed edit in the comment body) — Heath explicitly
+     prefers "comment for everything that needs to change" as the
+     fallback over silently dropping changes.
 
-  4. For each DELETE finding, call `replace_in_google_doc(
-        find=<old_text>, replace="", confirmed=True)`.
+     Format the changes_json from refiner findings:
+       TEXT_REPLACE → {"type": "replace", "old": …, "new": …}
+       INSERT       → {"type": "insert",  "after": <location_quote>, "new": …}
+       DELETE       → {"type": "delete",  "old": …}
 
-  5. For each COMMENT finding, call `insert_comment_in_google_doc(
-        doc_id=<new-id>, anchor_text=<location_quote>,
-        comment=<severity_prefix + comment_body>)` where
-     severity_prefix is "**[BLOCKING]**" / "[Should fix]" / "[Polish]".
+  3. **Add comments — for every COMMENT finding AND for every failed
+     markup change from step 2.** Call insert_comment_in_google_doc
+     once per item:
+       insert_comment_in_google_doc(
+         doc_id=<new-id>,
+         anchor_text=<location_quote>,
+         comment="<severity-prefix>: <body>"
+       )
+     Severity-prefix: "**[BLOCKING]**" / "[Should fix]" / "[Polish]".
+     For changes that fell through from step 2 (markup failed),
+     prefix with "[Edit suggestion — could not apply inline]" and
+     include OLD: ... NEW: ... in the comment body so the student
+     can apply manually.
 
-  6. Write the sidecar summary to <dir>/<stem>_pre-submission-summary.md
-     with the finding-counts header (BLOCKING / SHOULD_FIX / POLISH
-     totals) and a narrative of the top issues.
+  4. **Write the sidecar summary** to
+     <dir>/<stem>_pre-submission-summary.md with finding counts header
+     (BLOCKING / SHOULD_FIX / POLISH totals) and a narrative of the
+     top issues. If BLOCKING count is double-digit, lead with a
+     one-sentence "this paper has substantial structural issues —
+     recommend addressing before circulating to co-authors" headline.
 
-  7. Tell Heath the review-copy URL AND that he should open it in
-     Google Docs and use **Tools → Compare documents**, selecting the
-     original as the comparison target. The diff with proper change
-     marks will render automatically. Comments will be visible in the
-     margin.
+  5. **Tell Heath what landed.** Return the review-copy URL plus a
+     summary line like:
+       "Applied 47 inline markup edits + 18 comments. 3 markup edits
+        failed (anchor not found verbatim) — those are now comments
+        instead. Open the review copy at <url>; all changes are
+        visible in red, comments are in the margin."
+
+     Note: Tools → Compare documents is NOT needed with this workflow
+     — the visible-markup approach already makes every change obvious
+     in the doc itself. (Compare-documents is the fallback if for
+     some reason the markup tool wasn't usable.)
+
+  ─────────────────────────────────────────────────────────────────────
+  WORKFLOW A-FALLBACK: comments-only (if mark_changes_in_google_doc is
+  unavailable for any reason)
+  ─────────────────────────────────────────────────────────────────────
+
+  Heath explicitly preferred "no edits, only comments for every single
+  thing that needs to change" over silently-dropped changes. So if
+  step 2 above is unavailable (tool errors, permission issues, etc.):
+
+  1. Copy the manuscript via copy_google_doc (same as above)
+  2. Skip step 2 entirely
+  3. For EVERY refiner finding (TEXT_REPLACE / INSERT / DELETE / COMMENT):
+     insert_comment_in_google_doc with the proposed change in the body.
+     For TEXT_REPLACE: include OLD: ... NEW: ... so the student can
+     see exactly what to change.
+  4. Write sidecar summary
+  5. Return URL with a note that this is the comments-only fallback.
 
   ─────────────────────────────────────────────────────────────────────
   WORKFLOW B: markdown review only (.pdf / .md / .tex input, or

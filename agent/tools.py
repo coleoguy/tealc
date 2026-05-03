@@ -2346,6 +2346,242 @@ def replace_in_google_doc(doc_id: str, find: str, replace: str,
         return f"Error ({type(e).__name__}): {str(e)[:200]}"
 
 
+# ---------------------------------------------------------------------------
+# Helpers for mark_changes_in_google_doc — visible review-markup
+# ---------------------------------------------------------------------------
+
+def _gdoc_named_colors() -> dict:
+    """Color-name → rgbColor dict (floats 0-1) for the Google Docs API."""
+    return {
+        "red":     {"red": 0.85, "green": 0.10, "blue": 0.10},
+        "blue":    {"red": 0.10, "green": 0.30, "blue": 0.85},
+        "green":   {"red": 0.05, "green": 0.55, "blue": 0.10},
+        "orange":  {"red": 0.95, "green": 0.45, "blue": 0.05},
+        "purple":  {"red": 0.55, "green": 0.15, "blue": 0.65},
+    }
+
+
+def _gdoc_parse_color(color: str) -> dict:
+    """Parse named color or '#RRGGBB' hex to rgbColor dict."""
+    if color.startswith("#") and len(color) == 7:
+        try:
+            return {
+                "red":   int(color[1:3], 16) / 255.0,
+                "green": int(color[3:5], 16) / 255.0,
+                "blue":  int(color[5:7], 16) / 255.0,
+            }
+        except Exception:
+            pass
+    named = _gdoc_named_colors()
+    if color.lower() in named:
+        return named[color.lower()]
+    raise ValueError(
+        f"unknown color {color!r} (use 'red', 'blue', 'green', 'orange', 'purple', or '#RRGGBB')"
+    )
+
+
+def _gdoc_find_text_range(doc: dict, target: str) -> "tuple[int|None, int|None]":
+    """Find first occurrence of `target` in the doc body and return its
+    (startIndex, endIndex) global document indices. Walks all paragraph
+    runs and flattens — handles target text that spans multiple text runs
+    (e.g. a phrase that crosses a hyperlink boundary). Returns (None, None)
+    if target is not found.
+    """
+    pieces: list[tuple[int, str]] = []
+    for elem in doc.get("body", {}).get("content", []) or []:
+        para = elem.get("paragraph")
+        if not para:
+            continue
+        for run in para.get("elements", []) or []:
+            tr = run.get("textRun")
+            if not tr:
+                continue
+            content = tr.get("content", "") or ""
+            if content:
+                pieces.append((run.get("startIndex", 0), content))
+    if not pieces:
+        return None, None
+
+    # Build flat string + index mapping (flat_pos → global_index)
+    flat_chars: list[str] = []
+    flat_to_global: list[int] = []
+    for global_start, content in pieces:
+        for i, ch in enumerate(content):
+            flat_chars.append(ch)
+            flat_to_global.append(global_start + i)
+    flat = "".join(flat_chars)
+
+    pos = flat.find(target)
+    if pos == -1 or pos + len(target) > len(flat_to_global):
+        return None, None
+    start = flat_to_global[pos]
+    end = flat_to_global[pos + len(target) - 1] + 1
+    return start, end
+
+
+@tool
+def mark_changes_in_google_doc(doc_id: str, changes_json: str, color: str = "red") -> str:
+    """Apply visible review-markup edits to a Google Doc — both versions stay visible.
+
+    For each change:
+      - `replace`: marks the old text red+strikethrough, inserts the new text
+        right after it in red (no strikethrough). Reader sees BOTH the
+        original and the proposed replacement side-by-side.
+      - `insert`: adds new text at an anchor position, in red.
+      - `delete`: marks old text red+strikethrough without inserting anything.
+
+    Use this for pre-submission review on a COPY of the manuscript (made
+    via copy_google_doc): apply markup so the student/co-author can see
+    every proposed change inline. Pair with insert_comment_in_google_doc
+    for substantive issues that need explanation.
+
+    The Google Docs API does NOT support tracked-changes-as-suggestions
+    (that's a UI-only feature). This tool produces the closest visible
+    equivalent: colored markup that's obvious to a human reader.
+
+    Parameters
+    ----------
+    doc_id : Drive file ID of the (review-copy) Google Doc to mark up.
+    changes_json : JSON array. Each element shaped one of:
+        {"type": "replace", "old": "<verbatim>", "new": "<verbatim>"}
+        {"type": "insert",  "after": "<verbatim anchor>", "new": "<text>"}
+        {"type": "delete",  "old": "<verbatim>"}
+        Anchors and old-text values must appear verbatim in the doc.
+    color : "red" (default), "blue", "green", "orange", "purple", or
+        "#RRGGBB" hex. Same color is used for strikethrough+insertion.
+
+    Returns
+    -------
+    A summary line with applied / failed counts plus reasons for each
+    failure (so the agent can fall back to comments for the failures).
+    Applied counts include partial successes — a single change that
+    fails (because old_text isn't found) does NOT abort the rest.
+    """
+    import json as _json
+    docs, err = _docs_service()
+    if err:
+        return f"Docs not connected: {err}"
+
+    try:
+        changes = _json.loads(changes_json)
+    except Exception as e:
+        return f"Invalid changes_json: {e}"
+    if not isinstance(changes, list):
+        return "changes_json must be a JSON array"
+
+    try:
+        color_rgb = _gdoc_parse_color(color)
+    except Exception as e:
+        return f"Invalid color: {e}"
+
+    applied = 0
+    failed: list[tuple[int, str]] = []
+
+    for i, change in enumerate(changes):
+        try:
+            ctype = change.get("type", "").lower()
+            # Re-fetch the doc each iteration so indices are fresh after
+            # previous edits shifted them. Cheap (~0.5s) compared to
+            # debugging stale-index errors.
+            doc = docs.documents().get(documentId=doc_id).execute()
+
+            if ctype == "replace":
+                old = change["old"]
+                new = change["new"]
+                start, end = _gdoc_find_text_range(doc, old)
+                if start is None:
+                    raise ValueError(f"old text not found: {old[:80]!r}")
+                requests = [
+                    # Mark old text red+strikethrough (KEEP it; reader sees diff)
+                    {"updateTextStyle": {
+                        "range": {"startIndex": start, "endIndex": end},
+                        "textStyle": {
+                            "foregroundColor": {"color": {"rgbColor": color_rgb}},
+                            "strikethrough": True,
+                        },
+                        "fields": "foregroundColor,strikethrough",
+                    }},
+                    # Insert new text right after, in red (no strikethrough)
+                    {"insertText": {
+                        "location": {"index": end},
+                        "text": new,
+                    }},
+                    # Style the just-inserted new text
+                    {"updateTextStyle": {
+                        "range": {"startIndex": end, "endIndex": end + len(new)},
+                        "textStyle": {
+                            "foregroundColor": {"color": {"rgbColor": color_rgb}},
+                            "strikethrough": False,
+                            "bold": False,
+                        },
+                        "fields": "foregroundColor,strikethrough,bold",
+                    }},
+                ]
+
+            elif ctype == "insert":
+                after = change.get("after", "")
+                new = change["new"]
+                if after:
+                    s, end = _gdoc_find_text_range(doc, after)
+                    if s is None:
+                        raise ValueError(f"anchor text not found: {after[:80]!r}")
+                    insert_at = end
+                else:
+                    insert_at = (doc["body"]["content"][-1]["endIndex"] or 1) - 1
+                requests = [
+                    {"insertText": {
+                        "location": {"index": insert_at},
+                        "text": new,
+                    }},
+                    {"updateTextStyle": {
+                        "range": {"startIndex": insert_at, "endIndex": insert_at + len(new)},
+                        "textStyle": {
+                            "foregroundColor": {"color": {"rgbColor": color_rgb}},
+                            "strikethrough": False,
+                        },
+                        "fields": "foregroundColor,strikethrough",
+                    }},
+                ]
+
+            elif ctype == "delete":
+                old = change["old"]
+                start, end = _gdoc_find_text_range(doc, old)
+                if start is None:
+                    raise ValueError(f"old text not found: {old[:80]!r}")
+                requests = [
+                    {"updateTextStyle": {
+                        "range": {"startIndex": start, "endIndex": end},
+                        "textStyle": {
+                            "foregroundColor": {"color": {"rgbColor": color_rgb}},
+                            "strikethrough": True,
+                        },
+                        "fields": "foregroundColor,strikethrough",
+                    }},
+                ]
+
+            else:
+                raise ValueError(f"unknown change type: {ctype!r} (expected replace/insert/delete)")
+
+            docs.documents().batchUpdate(
+                documentId=doc_id, body={"requests": requests}
+            ).execute()
+            applied += 1
+
+        except Exception as exc:
+            failed.append((i, f"{type(exc).__name__}: {str(exc)[:160]}"))
+
+    out = [f"Applied {applied}/{len(changes)} review-markup edits to doc {doc_id}"]
+    if failed:
+        out.append(f"\nFailed ({len(failed)}):")
+        for idx, msg in failed:
+            out.append(f"  [{idx}] {msg}")
+        out.append(
+            "\nFor each failed change, fall back to insert_comment_in_google_doc "
+            "with the proposed text in the comment body."
+        )
+    return "\n".join(out)
+
+
 @tool
 def insert_comment_in_google_doc(doc_id: str, anchor_text: str, comment: str) -> str:
     """Add a margin comment anchored to the first occurrence of anchor_text.
@@ -7444,6 +7680,7 @@ def get_all_tools():
         copy_google_doc,
         append_to_google_doc,
         replace_in_google_doc,
+        mark_changes_in_google_doc,
         insert_comment_in_google_doc,
         # Task 6 — Calendar write access
         create_calendar_event,
