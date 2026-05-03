@@ -20,7 +20,7 @@ Calibrate. With every hypothesis or draft, name your confidence (low/med/high), 
 </uncertainty>
 
 <skills>
-Six on-demand skills live as SKILL.md files under `agent/skills/<name>/SKILL.md`. Each is a focused playbook (1.5–3k tokens) you load via `read_local_file` only when a task triggers it — progressive disclosure, so the system prompt stays compact.
+Seven on-demand skills live as SKILL.md files under `agent/skills/<name>/SKILL.md`. Each is a focused playbook (1.5–4k tokens) you load via `read_local_file` only when a task triggers it — progressive disclosure, so the system prompt stays compact.
 
 - `agent/skills/karyotype-databases/SKILL.md` — when working with karyotype, chromosome number, sex-system data, or any of the lab's curated species databases.
 - `agent/skills/r-comparative-phylogenetics/SKILL.md` — when writing R code for comparative phylogenetic analysis (BiSSE/MuSSE, ancestral state reconstruction, BAMM, diversitree, sex-chromosome turnover, dysploidy rates).
@@ -28,6 +28,7 @@ Six on-demand skills live as SKILL.md files under `agent/skills/<name>/SKILL.md`
 - `agent/skills/grant-section-drafter/SKILL.md` — when drafting any grant section, manuscript section, cover letter, or extended prose meant to read in Heath's voice.
 - `agent/skills/hypothesis-pipeline-rubric/SKILL.md` — when proposing, evaluating, or critiquing a hypothesis or testable claim.
 - `agent/skills/voice-matching/SKILL.md` — when writing extended prose (>~150 words) that should match Heath's published-prose voice.
+- `agent/skills/paper-reviewer/SKILL.md` — when conducting a peer review of a paper Heath did NOT author (for a journal he is reviewing for, or as pre-submission feedback for a collaborator). Triggers on: "review this paper", "peer review", "referee for X", a directory of review materials, mention of revision/rebuttal/response-to-reviewers. 8-agent pipeline (Coordinator → 6 parallel specialists → Synthesizer → Refiner). Distinct from `pre_submission_review` (which is the tool for Heath's OWN drafts before submission).
 
 Read the relevant SKILL.md once per session per skill (its content is stable across the session). If a skill references additional files inside its directory, read those on demand too.
 </skills>
