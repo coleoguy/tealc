@@ -36,7 +36,6 @@ behalf of the author. The failure modes to avoid are different:
 | Sycophancy on Heath's own work | The agent has been working with Heath all session — natural pull to flatter | **Adversarial Reader (Opus)** explicitly prompted with "you are reviewer 2 from hell — find every fatal flaw" |
 | Generic "tighten the prose" comments | Heath can do that himself; he wants the issues HE missed | Each finding must include a verbatim location quote and a specific reason |
 | Suggesting prose that doesn't sound like Heath | Tracked changes that reviewers see WILL get accepted; agent prose merged in is durable damage to voice | **Voice-match pass uses the `voice-matching` skill** (manuscript voice from `voice_index.py`), NOT the paper-reviewer skill's `voice.md` (which is peer-review voice — wrong context) |
-| Too many comments → ignored | Word file with 80 comments is unusable | Refiner cap: ≤30 tracked changes + ≤15 comments per pass; demote weakest |
 | Wrong venue rubric | Nature-tier prose suggestions on an Am Nat paper waste effort | Coordinator identifies venue first; Journal Fit Agent uses venue-specific criteria |
 
 ## Input contract
@@ -207,12 +206,19 @@ Phase 3: Synthesizer (Opus, inline — no bundle prompt)
 Phase 4: Refiner (Opus, inline — applies classification rubric below)
   - Classify each finding's fix_type — see "Classification rubric"
     below. Demote anything ambiguous to COMMENT.
-  - Apply caps: ≤30 tracked changes total, ≤15 comments total.
-    If over, drop weakest POLISH-severity items first; never drop a
-    BLOCKING item.
+  - **NO CAPS — preserve every substantive finding.** A docx with 80
+    tracked changes and 50 comments is fine; Heath would rather see
+    everything than have the agent silently drop issues it judged
+    "weak." The only legitimate reason a finding does NOT land in the
+    output docx is true duplication (same issue, same anchor — merged
+    by the synthesizer).
   - Verify each tracked change has unique anchoring (the verbatim
-    old_text appears exactly once in the manuscript). Demote to
-    COMMENT if old_text is ambiguous.
+    old_text appears exactly once in the manuscript). If old_text is
+    ambiguous, demote to COMMENT (preserves the finding; just changes
+    the format).
+  - Severity-rank every finding (BLOCKING / SHOULD_FIX / POLISH) so
+    Heath can triage in Word and so the summary.md can lead with the
+    most important ones.
 
 Phase 5: Voice-match pass (Sonnet — uses the voice-matching skill)
   - For each TEXT_REPLACE / INSERT finding with new_text in Heath's prose:
@@ -295,18 +301,29 @@ Severity tags carry through to the comment body so Heath can prioritize
 in Word: prefix BLOCKING comments with `**[BLOCKING]**`, SHOULD_FIX with
 `[Should fix]`, POLISH with `[Polish]`.
 
-## Output caps
+## No output caps — preserve everything substantive
 
-| Cap | Rationale |
-|---|---|
-| ≤30 tracked changes | A docx with 50+ track-changes is unusable; Heath will reject the lot |
-| ≤15 comments | A docx with 30+ margin balloons is unusable for the same reason |
-| ≤5 BLOCKING-severity findings | If there are more, the paper isn't ready and Heath should know that as a single conclusion, not as 12 atomized comments |
+Heath has explicitly opted into completeness over docx ergonomics: he'd
+rather see 80 tracked changes and 50 comments than have the agent silently
+drop findings it judged "weak." Don't drop. The only finding that
+legitimately doesn't appear in the output is one that's a true duplicate
+of another (same issue, same anchor — merged in the synthesizer's
+deduplication step, not "dropped").
 
-If the synthesizer produces more than these caps, the refiner drops:
-1. POLISH-severity items first
-2. SHOULD_FIX items the Adversarial Reader did NOT also flag
-3. Citation Verifier items that are formatting-only (vs missing/wrong)
+Severity tags (BLOCKING / SHOULD_FIX / POLISH) are still attached to every
+finding — they're how Heath triages in Word, and how the summary.md
+prioritizes its narrative. They are not a basis for dropping.
+
+The summary.md MUST surface counts at the top so Heath knows the volume
+before opening the docx:
+
+> **Summary**: 24 BLOCKING, 47 SHOULD_FIX, 31 POLISH findings — 78 tracked
+> changes + 24 comments in `<stem>_pre-submission.docx`.
+
+If the BLOCKING count is double-digit, lead the summary narrative with
+"this paper has substantial structural issues — recommend addressing these
+before circulating to co-authors" (one sentence, then the BLOCKING list).
+That's a HEADS-UP, not a drop — the docx still contains every finding.
 
 ## Cost / latency
 
