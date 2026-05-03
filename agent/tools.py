@@ -34,6 +34,69 @@ def _read_pdf(path: str) -> str:
     return "\n\n".join(parts)
 
 
+def _read_drive_shortcut(path: str) -> str:
+    """Read a Google Drive shortcut file (.gdoc / .gsheet / .gslides) by
+    parsing its JSON to extract the cloud doc_id, then fetching the actual
+    cloud content via the Drive API and exporting to text/CSV.
+
+    .gdoc / .gsheet / .gslides files in Google Drive Desktop are tiny JSON
+    stubs of the form:
+        {"doc_id": "1AX1DWsDlCXqer8df...", "email": "...", ...}
+    They are NOT the actual document — that lives in the cloud. Without
+    this helper, `read_local_file` would treat them as opaque files and
+    refuse to read them, forcing the chat agent to ask the user for a URL
+    or Doc ID even when the file is sitting right there in a project
+    folder.
+
+    Raises ValueError for malformed shortcuts or unsupported mime types.
+    Raises RuntimeError if the Drive service can't be reached.
+    """
+    import json as _json
+    with open(path, "r", encoding="utf-8") as fh:
+        meta = _json.load(fh)
+    doc_id = meta.get("doc_id") or meta.get("id") or meta.get("file_id")
+    if not doc_id:
+        raise ValueError(
+            f"Drive shortcut at {path!r} has no doc_id field; got keys: {sorted(meta.keys())}"
+        )
+
+    service, err = _get_google_service("drive", "v3")
+    if err:
+        raise RuntimeError(f"Drive not connected: {err}")
+
+    file_meta = service.files().get(
+        fileId=doc_id, fields="name,mimeType", supportsAllDrives=True
+    ).execute()
+    mime = file_meta.get("mimeType", "")
+    name = file_meta.get("name", "(untitled)")
+
+    if mime == "application/vnd.google-apps.document":
+        # Google Doc → export as plain text
+        content = service.files().export(
+            fileId=doc_id, mimeType="text/plain"
+        ).execute()
+        text = content.decode("utf-8") if isinstance(content, bytes) else content
+    elif mime == "application/vnd.google-apps.spreadsheet":
+        # Google Sheet → export the first sheet as CSV
+        content = service.files().export(
+            fileId=doc_id, mimeType="text/csv"
+        ).execute()
+        text = content.decode("utf-8") if isinstance(content, bytes) else content
+    elif mime == "application/vnd.google-apps.presentation":
+        # Google Slides → export as plain text
+        content = service.files().export(
+            fileId=doc_id, mimeType="text/plain"
+        ).execute()
+        text = content.decode("utf-8") if isinstance(content, bytes) else content
+    else:
+        raise ValueError(
+            f"Drive shortcut at {path!r} points to unsupported mime type {mime!r} "
+            f"(file: {name})"
+        )
+
+    return f"**{name}** (Google Drive: {doc_id})\n\n{text}"
+
+
 def _db_path() -> str:
     """Resolve the canonical agent.db path via env-aware scheduler module.
 
@@ -472,8 +535,17 @@ def read_local_file(path: str, max_chars: int = 25000) -> str:
             content = _read_docx(path)
         elif ext == ".pdf":
             content = _read_pdf(path)
+        elif ext in (".gdoc", ".gsheet", ".gslides"):
+            # Google Drive shortcut files — JSON stubs that point at the
+            # actual cloud document. Without this branch, project-folder
+            # manuscripts and sheets would be unreadable from a path even
+            # though they're sitting right there in the directory listing.
+            content = _read_drive_shortcut(path)
         else:
-            return f"Unsupported file format: {ext}. Supported: text files, .docx, .pdf"
+            return (
+                f"Unsupported file format: {ext}. Supported: text files, "
+                f".docx, .pdf, .gdoc, .gsheet, .gslides."
+            )
         if len(content) > max_chars:
             return (
                 content[:max_chars]
