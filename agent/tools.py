@@ -6634,9 +6634,201 @@ def propose_data_dir(project_id: str) -> str:
         return f"Error proposing data_dir: {e}"
 
 
+# ---------------------------------------------------------------------------
+# Project manuscript finder — knows where Heath's manuscripts live
+# ---------------------------------------------------------------------------
+
+# Subdirectories that should be IGNORED when searching for the current
+# manuscript. Old / dev / supporting material lives here.
+_MANUSCRIPT_SKIP_DIRS = {
+    "deprecated", "_dev", "_archive", "archive", "old",
+    "figures", "figure", "fig", "supplement", "supplements", "si",
+    "supporting_information", "data", "raw", "scratch",
+}
+
+# File-name tokens that suggest a candidate IS the main manuscript
+_MANUSCRIPT_NAME_TOKENS = ("manuscript", "main_text", "main text", "main-text", "draft")
+
+# File-name tokens that suggest a candidate is NOT the main manuscript
+_MANUSCRIPT_NEGATIVE_TOKENS = (
+    "supplement", "supp ", "_supp", "-supp", " si.", "_si.", "-si.",
+    "response", "rebuttal", "cover", "letter", "review", "revision_notes",
+    "audit", "checklist", "_dev",
+)
+
+
+def _resolve_project_dir(project: str) -> "tuple[str|None, str|None, str|None]":
+    """Resolve a project specifier to (project_id, project_name, data_dir).
+
+    Accepts:
+      - A project ID (e.g. "p_002")
+      - A project name (case-insensitive substring match against
+        research_projects.name)
+      - An absolute path to a project folder
+
+    Returns (None, None, None) if nothing matches; otherwise returns the
+    triple. The data_dir is the absolute path to the project folder.
+    """
+    spec = (project or "").strip()
+    if not spec:
+        return None, None, None
+
+    # Absolute path?
+    if spec.startswith("/") and os.path.isdir(spec):
+        return None, os.path.basename(spec.rstrip("/")), spec
+
+    try:
+        conn = sqlite3.connect(_db_path())
+        conn.row_factory = sqlite3.Row
+        # Exact ID match first
+        row = conn.execute(
+            "SELECT id, name, data_dir FROM research_projects WHERE id = ?",
+            (spec,),
+        ).fetchone()
+        if not row:
+            # Case-insensitive substring against project name
+            row = conn.execute(
+                "SELECT id, name, data_dir FROM research_projects "
+                "WHERE LOWER(name) LIKE ? AND status='active' "
+                "ORDER BY length(name) ASC LIMIT 1",
+                (f"%{spec.lower()}%",),
+            ).fetchone()
+        conn.close()
+        if row:
+            return row["id"], row["name"], row["data_dir"]
+    except Exception:
+        pass
+    return None, None, None
+
+
+def _score_manuscript_candidate(filepath: str) -> int:
+    """Score a candidate manuscript file. Higher = more likely the main MS.
+
+    Heuristics:
+      +5 if in a `manuscript/` subdir
+      +3 if filename contains "manuscript" (or "main_text", "draft")
+      +2 if .gdoc (Heath's working format)
+      +1 if .docx
+      -5 if filename contains a negative token (supplement, response, audit, …)
+      -10 if in a SKIP_DIRS subdirectory anywhere in the path
+    """
+    parts_lower = [p.lower() for p in filepath.split(os.sep)]
+    name_lower = os.path.basename(filepath).lower()
+
+    score = 0
+    if any(seg == "manuscript" for seg in parts_lower):
+        score += 5
+    if any(tok in name_lower for tok in _MANUSCRIPT_NAME_TOKENS):
+        score += 3
+    if name_lower.endswith(".gdoc"):
+        score += 2
+    elif name_lower.endswith(".docx"):
+        score += 1
+    if any(tok in name_lower for tok in _MANUSCRIPT_NEGATIVE_TOKENS):
+        score -= 5
+    if any(seg in _MANUSCRIPT_SKIP_DIRS for seg in parts_lower):
+        score -= 10
+    return score
+
+
+@tool
+def find_project_manuscript(project: str) -> str:
+    """Find the current manuscript file for a research project.
+
+    Accepts a project ID ("p_002"), project name ("Achiasmy Synthesis"),
+    name fragment ("achiasmy"), or absolute path to a project folder.
+    Returns ranked candidates with paths + mtimes — the top result is
+    the agent's best guess at the main manuscript.
+
+    Convention encoded by this tool (matches Heath's actual layout):
+      - The current manuscript lives in `<project>/manuscript/` subdirectory
+      - File name typically contains "manuscript" (case insensitive)
+      - .gdoc preferred over .docx (Heath's working format is Google Docs)
+      - Files in `deprecated/`, `_dev/`, `archive/`, `figures/`,
+        `supplement*/` subdirs are EXCLUDED from the top candidate
+      - Files containing "supplement", "response", "rebuttal", "review",
+        "audit" in the name are demoted (they're support material, not
+        the main manuscript)
+      - When multiple Manuscript files exist (e.g. "Manuscript.gdoc" and
+        "Manuscript-HB-edits.gdoc"), the most recently modified wins
+
+    Use this BEFORE asking Heath where the manuscript is. Only fall back
+    to asking if find_project_manuscript returns no candidates or
+    multiple equally-scored candidates.
+
+    Returns a markdown table of ranked candidates. The top row is the
+    recommended path to use as `manuscript_path` in
+    run_pre_submission_review.
+    """
+    proj_id, proj_name, data_dir = _resolve_project_dir(project)
+    if not data_dir or not os.path.isdir(data_dir):
+        return (
+            f"No project found for {project!r}. Searched research_projects "
+            f"(by ID and name) and as an absolute path. Use "
+            f"`list_research_projects()` to see available projects."
+        )
+
+    # Walk the project tree, collect .gdoc and .docx files
+    candidates: list[tuple[int, float, str]] = []
+    for root, dirs, files in os.walk(data_dir):
+        # Prune SKIP dirs in-place so os.walk doesn't descend into them
+        dirs[:] = [d for d in dirs if d.lower() not in _MANUSCRIPT_SKIP_DIRS]
+        for fname in files:
+            if fname.startswith("."):
+                continue
+            if not (fname.lower().endswith(".gdoc") or fname.lower().endswith(".docx")):
+                continue
+            fpath = os.path.join(root, fname)
+            try:
+                mtime = os.path.getmtime(fpath)
+            except Exception:
+                mtime = 0
+            score = _score_manuscript_candidate(fpath)
+            if score < 0:
+                continue  # Negative-scored candidates aren't manuscripts
+            candidates.append((score, mtime, fpath))
+
+    if not candidates:
+        return (
+            f"Project found ({proj_name or os.path.basename(data_dir)}) at "
+            f"`{data_dir}` but no manuscript files (.gdoc / .docx) detected. "
+            f"Either the manuscript is in a different format, or the project "
+            f"doesn't have one yet."
+        )
+
+    # Rank by score DESC, then mtime DESC (most recent edit wins ties)
+    candidates.sort(key=lambda x: (-x[0], -x[1]))
+
+    out = [
+        f"## Manuscript candidates for **{proj_name or os.path.basename(data_dir)}**"
+        + (f" (`{proj_id}`)" if proj_id else ""),
+        f"_Scanned:_ `{data_dir}`",
+        "",
+        "| Score | Modified | Path |",
+        "|---|---|---|",
+    ]
+    from datetime import datetime as _dt
+    for score, mtime, fpath in candidates[:10]:
+        rel = os.path.relpath(fpath, data_dir)
+        modified = _dt.fromtimestamp(mtime).strftime("%Y-%m-%d") if mtime else "?"
+        marker = "**→**" if (score, mtime, fpath) == candidates[0] else ""
+        out.append(f"| {marker} {score} | {modified} | `{rel}` |")
+
+    top = candidates[0][2]
+    out.extend([
+        "",
+        f"**Recommended:** `{top}`",
+        "",
+        f"To run the pre-submission review:",
+        f"  `run_pre_submission_review(manuscript_path=\"{top}\", venue=\"<journal>\")`",
+    ])
+    return "\n".join(out)
+
+
 @tool
 def run_pre_submission_review(
-    manuscript_path: str,
+    manuscript_path: str = "",
+    project: str = "",
     venue: str = "journal_generic",
     target_doc_title: str = "",
 ) -> str:
@@ -6682,11 +6874,37 @@ def run_pre_submission_review(
     individually — the LLM-driven multi-step approach has been observed
     to skip steps and fall back to single-shot prose. This tool guarantees
     the right output shape.
+
+    If you don't have a path, pass `project` (project ID, name, or name
+    fragment) and the tool will use find_project_manuscript to locate
+    the current manuscript automatically — no Drive search loop needed.
     """
     import json as _json
     from datetime import datetime as _dt, timezone as _tz
     from pathlib import Path as _Path
     from agent.subagents import run_parallel_subagents  # noqa: PLC0415
+
+    # ---- Step 0: resolve manuscript_path from project if needed ----
+    if not manuscript_path and project:
+        finder_result = find_project_manuscript.invoke({"project": project})
+        # find_project_manuscript returns markdown including a "**Recommended:** `<path>`" line
+        recommended = None
+        for line in finder_result.splitlines():
+            if line.startswith("**Recommended:**"):
+                recommended = line.split("`", 2)[1] if "`" in line else None
+                break
+        if not recommended:
+            return (
+                f"FAILED to locate manuscript for project={project!r}. "
+                f"find_project_manuscript said:\n\n{finder_result[:1500]}"
+            )
+        manuscript_path = recommended
+    if not manuscript_path:
+        return (
+            "Either `manuscript_path` or `project` must be provided. "
+            "Pass a manuscript file path directly, or pass a project ID / "
+            "name and the tool will auto-locate the manuscript."
+        )
 
     # ---- Step 1: read manuscript ----
     text = read_local_file.invoke({"path": manuscript_path, "max_chars": 500000})
@@ -8027,6 +8245,7 @@ def get_all_tools():
         replace_in_google_doc,
         mark_changes_in_google_doc,
         insert_comment_in_google_doc,
+        find_project_manuscript,
         run_pre_submission_review,
         # Task 6 — Calendar write access
         create_calendar_event,

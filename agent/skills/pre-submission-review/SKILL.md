@@ -40,18 +40,41 @@ description: >
 
 ## ⚠ FIRST READ — call ONE TOOL, do not assemble the workflow yourself
 
-**Use the tool `run_pre_submission_review(manuscript_path, venue)`** for
-ANY pre-submission review request. That single tool deterministically
-runs the entire 5-specialist + synthesizer + copy + markup + comments
+**Use the tool `run_pre_submission_review(project, venue)`** for ANY
+pre-submission review request. That single tool deterministically runs
+the entire 5-specialist + synthesizer + copy + markup + comments
 pipeline in Python — guaranteed to produce a marked-up Google Doc copy,
 guaranteed never to fall through to a journal-style prose review.
 
+The `project` parameter accepts:
+  - A project ID like `p_002`
+  - A project name like `"Achiasmy Synthesis"`
+  - A name fragment like `"achiasmy"`
+
+The orchestrator calls `find_project_manuscript(project)` internally
+to locate the current manuscript at `<project>/manuscript/*Manuscript*.gdoc`
+— no Drive search loop needed, no asking Heath for paths. Heath's
+projects follow a strict convention (current manuscript lives in the
+`manuscript/` subdirectory; `deprecated/` and `_dev/` are excluded;
+the most-recently-edited file wins), and the finder respects it.
+
 ```
+# Most natural call — all that's usually needed:
+run_pre_submission_review(project="Achiasmy Synthesis", venue="Am_Nat")
+
+# If for some reason the project finder picks the wrong file, fall
+# back to passing an explicit path:
 run_pre_submission_review(
-    manuscript_path="/Users/.../My Drive/.../Projects/Achiasmy Synthesis/manuscript.gdoc",
+    manuscript_path="/Users/.../Projects/<dir>/manuscript/<file>.gdoc",
     venue="Am_Nat",
 )
 ```
+
+If the user mentions a project by name without a path, **DO NOT**
+search Drive — call `find_project_manuscript(project)` first to
+preview which file will be used, OR just call
+`run_pre_submission_review(project=...)` and let the orchestrator
+locate the manuscript.
 
 Do NOT try to assemble this workflow yourself by calling
 `spawn_subagent` + `copy_google_doc` + `mark_changes_in_google_doc`
