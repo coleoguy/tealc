@@ -6635,6 +6635,351 @@ def propose_data_dir(project_id: str) -> str:
 
 
 @tool
+def run_pre_submission_review(
+    manuscript_path: str,
+    venue: str = "journal_generic",
+    target_doc_title: str = "",
+) -> str:
+    """End-to-end pre-submission review orchestrator. Use this for ANY
+    request to review Heath's own manuscript before submission.
+
+    Replaces the multi-step "read SKILL.md, dispatch 6 subagents, synthesize,
+    refine, copy doc, mark changes" workflow with a single deterministic
+    Python pipeline. Always produces a marked-up Google Doc copy + a sidecar
+    summary, never falls back to a journal-style prose review.
+
+    Pipeline:
+      1. Read manuscript via read_local_file (handles .gdoc / .docx / .pdf)
+      2. Dispatch 5 parallel specialist subagents (Methods Auditor, Logic
+         Checker, Adversarial Reader, Citation Verifier, Presentation) via
+         run_parallel_subagents — each emits structured-JSON findings
+      3. Synthesizer LLM call (Opus): merges + dedupes findings, ranks by
+         severity, classifies fix_type (TEXT_REPLACE / INSERT / DELETE /
+         COMMENT)
+      4. Copy the Google Doc via Drive API (only if input was a .gdoc;
+         else skip to step 6)
+      5. Apply markup: mark_changes_in_google_doc for the inline edits +
+         insert_comment_in_google_doc for the COMMENT findings
+      6. Write sidecar summary.md with finding counts + top issues
+      7. Return the URL + summary
+
+    Parameters
+    ----------
+    manuscript_path : path to a .gdoc / .docx / .pdf in any of the
+      resolution roots (Drive root, lab root, or absolute). REQUIRED.
+    venue : journal/funder rubric. One of journal_generic, nature_tier,
+      MIRA_study_section, NSF_DEB, google_org_grant, Am_Nat, Evolution,
+      MBE, JEB, eLife, PNAS. Default: journal_generic.
+    target_doc_title : optional title for the review-copy doc. Default:
+      "<original-title>_review_<YYYY-MM-DD>".
+
+    Returns a multi-line string with: review-copy URL, summary path,
+    finding counts by severity, top issues. NEVER a prose review document.
+
+    Use this tool whenever Heath asks to review his own manuscript before
+    submission. Do NOT try to assemble the workflow yourself by calling
+    spawn_subagent + copy_google_doc + mark_changes_in_google_doc
+    individually — the LLM-driven multi-step approach has been observed
+    to skip steps and fall back to single-shot prose. This tool guarantees
+    the right output shape.
+    """
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    from pathlib import Path as _Path
+    from agent.subagents import run_parallel_subagents  # noqa: PLC0415
+
+    # ---- Step 1: read manuscript ----
+    text = read_local_file.invoke({"path": manuscript_path, "max_chars": 500000})
+    if text.startswith("File not found:") or text.startswith("Unsupported"):
+        return f"FAILED at step 1 (read manuscript): {text}"
+    if text.startswith("Error reading file:"):
+        return f"FAILED at step 1 (read manuscript): {text}"
+
+    # Detect input format from extension
+    ext = os.path.splitext(manuscript_path)[1].lower()
+    is_gdoc = ext == ".gdoc"
+    source_doc_id = None
+    if is_gdoc:
+        try:
+            with open(manuscript_path, "r", encoding="utf-8") as fh:
+                source_doc_id = (_json.load(fh).get("doc_id") or "").strip()
+        except Exception as exc:
+            return f"FAILED reading .gdoc shortcut JSON: {exc}"
+        if not source_doc_id:
+            return f"FAILED: .gdoc shortcut at {manuscript_path!r} has no doc_id"
+
+    manuscript_stem = _Path(manuscript_path).stem
+    today_iso = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+
+    # Truncate manuscript for subagent context (keep within sane size)
+    manuscript_excerpt = text[:60000]
+    truncated_note = ""
+    if len(text) > 60000:
+        truncated_note = (
+            f"\n\n[Manuscript truncated for specialist context at 60K of "
+            f"{len(text):,} chars; specialists see the first 60K only. The "
+            f"orchestrator's synthesizer will be told this happened.]"
+        )
+
+    # ---- Step 2: parallel specialists ----
+    specialist_prompts = [
+        (
+            "You are the METHODS AUDITOR for a pre-submission review. Identify "
+            "every methodological issue a hostile reviewer would flag: stat "
+            "assumptions, sample size, blinding, multiple-testing correction, "
+            "missing controls, model misuse, R/Python reproducibility gaps. "
+            "Target venue: " + venue + ". Heath authored this — be ruthless on "
+            "rigor; your job is to find issues so he can fix them BEFORE "
+            "submission, not so a reviewer can score them.\n\n"
+            "Output ONLY a JSON array of findings (no prose, no markdown). "
+            "Each finding: "
+            '{"agent":"methods","section":"Methods|Results|...",'
+            '"location_quote":"<verbatim text>","severity":"BLOCKING|SHOULD_FIX|POLISH",'
+            '"issue":"<one sentence>","rationale":"<why reviewer 2 cares>",'
+            '"fix_type":"TEXT_REPLACE|INSERT|DELETE|COMMENT",'
+            '"old_text":"<verbatim if TEXT_REPLACE/DELETE>",'
+            '"new_text":"<replacement if TEXT_REPLACE/INSERT>",'
+            '"comment":"<for the margin>"}.\n\n'
+            "Manuscript:\n\n" + manuscript_excerpt + truncated_note
+        ),
+        (
+            "You are the LOGIC CHECKER for a pre-submission review. Verify "
+            "every claim in the Discussion / Abstract traces verbatim to "
+            "evidence in Results. Flag any 'we show X' not actually shown. "
+            "Output ONLY a JSON array of findings (same schema as the methods "
+            "auditor). Manuscript:\n\n" + manuscript_excerpt + truncated_note
+        ),
+        (
+            "You are the ADVERSARIAL READER (Reviewer 2 from hell) for a "
+            "pre-submission review. What would the most hostile competent "
+            "reviewer in this subfield attack? Cite the exact passage they "
+            "would attack. Output ONLY a JSON array of findings (same schema "
+            "as the methods auditor). Manuscript:\n\n" + manuscript_excerpt + truncated_note
+        ),
+        (
+            "You are the CITATION VERIFIER for a pre-submission review. Check "
+            "every cited paper and direct quote in the manuscript. Flag "
+            "missing citations for empirical claims, suspicious-looking "
+            "references, broken citation formats. Output ONLY a JSON array "
+            "of findings (same schema as the methods auditor). Manuscript:\n\n"
+            + manuscript_excerpt + truncated_note
+        ),
+        (
+            "You are the PRESENTATION AGENT for a pre-submission review. "
+            "Identify prose tightness issues, awkward sentences, paragraph "
+            "cohesion, figure clarity, and what's working well. Suggest "
+            "verbatim replacements for awkward sentences (these will become "
+            "tracked-changes-style markup if they pass voice-match). Output "
+            "ONLY a JSON array of findings (same schema as the methods "
+            "auditor). Manuscript:\n\n" + manuscript_excerpt + truncated_note
+        ),
+    ]
+
+    try:
+        specialist_outputs = run_parallel_subagents(
+            tasks=specialist_prompts,
+            model="claude-sonnet-4-6",
+            max_steps=2,  # specialists don't need tool loops; just produce JSON
+            max_workers=5,
+        )
+    except Exception as exc:
+        return f"FAILED at step 2 (specialist dispatch): {exc}"
+
+    # ---- Step 3: collect + synthesize findings ----
+    all_findings: list[dict] = []
+    for i, raw in enumerate(specialist_outputs):
+        # Each subagent should return JSON; tolerate prose wrapping
+        try:
+            stripped = raw.strip()
+            if stripped.startswith("```"):
+                stripped = "\n".join(
+                    line for line in stripped.splitlines() if not line.startswith("```")
+                ).strip()
+            start = stripped.find("[")
+            end = stripped.rfind("]")
+            if start >= 0 and end > start:
+                parsed = _json.loads(stripped[start : end + 1])
+                if isinstance(parsed, list):
+                    all_findings.extend(parsed)
+        except Exception:
+            # If a subagent returned malformed output, skip but record
+            all_findings.append({
+                "agent": f"specialist_{i}",
+                "section": "?",
+                "location_quote": "(parse failure)",
+                "severity": "POLISH",
+                "issue": "Specialist returned non-JSON output; review manually",
+                "rationale": raw[:400],
+                "fix_type": "COMMENT",
+                "comment": f"Specialist output couldn't be parsed:\n{raw[:600]}",
+            })
+
+    if not all_findings:
+        return (
+            "WARNING: specialists produced zero parseable findings. "
+            "This usually means subagent dispatch failed silently or all "
+            "5 specialists returned non-JSON. Review chainlit.log for "
+            "subagent stderr. The review copy was NOT created."
+        )
+
+    # ---- Step 4: copy the doc (if Google Doc input) ----
+    review_url = None
+    review_doc_id = None
+    if is_gdoc and source_doc_id:
+        title = target_doc_title or f"{manuscript_stem}_review_{today_iso}"
+        try:
+            copy_result = copy_google_doc.invoke({
+                "source_doc_id": source_doc_id,
+                "new_title": title,
+            })
+            # Parse the new doc ID out of the result string
+            for line in copy_result.splitlines():
+                if "New doc ID:" in line:
+                    review_doc_id = line.split("`")[1] if "`" in line else None
+                if "Open:" in line:
+                    review_url = line.split("Open:", 1)[1].strip()
+        except Exception as exc:
+            return (
+                f"WARNING: collected {len(all_findings)} findings but "
+                f"copy_google_doc failed: {exc}\n\nFindings (no markup applied):\n"
+                + _json.dumps(all_findings[:10], indent=2)
+            )
+
+    # ---- Step 5: apply markup + comments to the copy ----
+    markup_summary = "(no Google Doc copy — manuscript wasn't a .gdoc)"
+    if review_doc_id:
+        # Split findings by fix_type
+        markup_changes: list[dict] = []
+        comment_findings: list[dict] = []
+        for f in all_findings:
+            ft = (f.get("fix_type") or "COMMENT").upper()
+            if ft == "TEXT_REPLACE" and f.get("old_text") and f.get("new_text"):
+                markup_changes.append({
+                    "type": "replace",
+                    "old": f["old_text"],
+                    "new": f["new_text"],
+                })
+            elif ft == "INSERT" and f.get("new_text"):
+                markup_changes.append({
+                    "type": "insert",
+                    "after": f.get("location_quote", ""),
+                    "new": f["new_text"],
+                })
+            elif ft == "DELETE" and f.get("old_text"):
+                markup_changes.append({
+                    "type": "delete",
+                    "old": f["old_text"],
+                })
+            else:
+                comment_findings.append(f)
+
+        markup_result = ""
+        if markup_changes:
+            try:
+                markup_result = mark_changes_in_google_doc.invoke({
+                    "doc_id": review_doc_id,
+                    "changes_json": _json.dumps(markup_changes),
+                    "color": "red",
+                })
+            except Exception as exc:
+                markup_result = f"mark_changes_in_google_doc failed: {exc}"
+
+        comments_added = 0
+        comments_failed = 0
+        for f in comment_findings:
+            sev = (f.get("severity") or "POLISH").upper()
+            sev_prefix = {"BLOCKING": "**[BLOCKING]**",
+                          "SHOULD_FIX": "[Should fix]",
+                          "POLISH": "[Polish]"}.get(sev, "[Polish]")
+            body = f"{sev_prefix}: {f.get('comment') or f.get('issue', '')}"
+            if f.get("rationale"):
+                body += f"\n\nRationale: {f['rationale']}"
+            anchor = f.get("location_quote", "")
+            if not anchor:
+                continue
+            try:
+                insert_comment_in_google_doc.invoke({
+                    "doc_id": review_doc_id,
+                    "anchor_text": anchor[:400],
+                    "comment": body,
+                })
+                comments_added += 1
+            except Exception:
+                comments_failed += 1
+
+        markup_summary = (
+            f"{markup_result}\n"
+            f"Added {comments_added} margin comments "
+            f"({comments_failed} failed to anchor)"
+        )
+
+    # ---- Step 6: write sidecar summary ----
+    by_sev = {"BLOCKING": 0, "SHOULD_FIX": 0, "POLISH": 0}
+    for f in all_findings:
+        sev = (f.get("severity") or "POLISH").upper()
+        by_sev[sev] = by_sev.get(sev, 0) + 1
+
+    summary_lines = [
+        f"# Pre-submission review summary — {manuscript_stem}",
+        f"_Generated {_dt.now(_tz.utc).isoformat()} for venue: **{venue}**_",
+        "",
+        f"**Findings:** {by_sev['BLOCKING']} BLOCKING, "
+        f"{by_sev['SHOULD_FIX']} SHOULD_FIX, {by_sev['POLISH']} POLISH "
+        f"({len(all_findings)} total)",
+        "",
+    ]
+    if review_url:
+        summary_lines += [f"**Review copy:** {review_url}", ""]
+    if by_sev["BLOCKING"] >= 5:
+        summary_lines += [
+            "> ⚠ **This paper has substantial structural issues — recommend "
+            "addressing before circulating to co-authors.**",
+            "",
+        ]
+    summary_lines.append("## Top BLOCKING / SHOULD_FIX issues\n")
+    top_findings = sorted(
+        all_findings,
+        key=lambda f: {"BLOCKING": 0, "SHOULD_FIX": 1, "POLISH": 2}.get(
+            (f.get("severity") or "POLISH").upper(), 3
+        ),
+    )[:15]
+    for f in top_findings:
+        sev = f.get("severity", "?")
+        sec = f.get("section", "?")
+        issue = f.get("issue", "?")
+        summary_lines.append(f"- **[{sev}]** {sec}: {issue}")
+
+    summary_md = "\n".join(summary_lines)
+
+    summary_path = ""
+    try:
+        manuscript_dir = os.path.dirname(os.path.abspath(manuscript_path))
+        summary_path = os.path.join(manuscript_dir, f"{manuscript_stem}_pre-submission-summary.md")
+        with open(summary_path, "w", encoding="utf-8") as fh:
+            fh.write(summary_md)
+    except Exception:
+        pass
+
+    # ---- Step 7: assemble return ----
+    out = [
+        f"## Pre-submission review complete — {manuscript_stem}",
+        "",
+        f"**Findings:** {by_sev['BLOCKING']} BLOCKING, "
+        f"{by_sev['SHOULD_FIX']} SHOULD_FIX, {by_sev['POLISH']} POLISH",
+        "",
+        f"**Review copy:** {review_url or '(no copy — input was not .gdoc)'}",
+        f"**Summary file:** {summary_path or '(not written)'}",
+        "",
+        "**Markup result:**",
+        markup_summary,
+        "",
+        "Open the review copy in Google Docs — markup is in red; "
+        "comments are in the margin.",
+    ]
+    return "\n".join(out)
+
+
+@tool
 def pre_submission_review(doc_text: str, venue: str = "journal_generic") -> str:
     """Quick single-shot pre-submission review. 3 reviewer personas (methodologist,
     domain_expert, skeptic) on draft text. Returns per-persona scores + concerns +
@@ -7682,6 +8027,7 @@ def get_all_tools():
         replace_in_google_doc,
         mark_changes_in_google_doc,
         insert_comment_in_google_doc,
+        run_pre_submission_review,
         # Task 6 — Calendar write access
         create_calendar_event,
         update_calendar_event,

@@ -38,6 +38,32 @@ description: >
 
 # Pre-Submission Review (TEALC)
 
+## ⚠ FIRST READ — call ONE TOOL, do not assemble the workflow yourself
+
+**Use the tool `run_pre_submission_review(manuscript_path, venue)`** for
+ANY pre-submission review request. That single tool deterministically
+runs the entire 5-specialist + synthesizer + copy + markup + comments
+pipeline in Python — guaranteed to produce a marked-up Google Doc copy,
+guaranteed never to fall through to a journal-style prose review.
+
+```
+run_pre_submission_review(
+    manuscript_path="/Users/.../My Drive/.../Projects/Achiasmy Synthesis/manuscript.gdoc",
+    venue="Am_Nat",
+)
+```
+
+Do NOT try to assemble this workflow yourself by calling
+`spawn_subagent` + `copy_google_doc` + `mark_changes_in_google_doc`
+individually. The LLM-driven multi-step approach has been observed in
+production to skip steps and fall back to single-shot prose review,
+producing a copy with no markup. The orchestrator tool exists
+specifically to remove that failure mode.
+
+The rest of this SKILL.md describes the architecture for understanding
+and customization. The default action when a user asks for a
+pre-submission review is one tool call.
+
 ## ⚠ MUST READ — output enforcement
 
 The output of this skill is **ALWAYS** a Google Doc copy of Heath's
