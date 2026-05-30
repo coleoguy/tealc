@@ -203,6 +203,7 @@ def record_call(job_name: str, model: str, usage: "Usage | dict") -> None:
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """INSERT INTO cost_tracking
            (ts, job_name, model, tokens_in, tokens_out,
@@ -237,6 +238,7 @@ def summarize_costs(since_iso: str | None = None, job_name: str | None = None) -
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
 
     rows = conn.execute(

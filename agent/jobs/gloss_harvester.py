@@ -166,6 +166,7 @@ def _find_supporting_findings(term: str, limit: int = 5) -> list[dict]:
     (case-insensitive).  Prefer matches that appear as whole phrases."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     term_lower = term.lower()
     # Broad match first; rank client-side

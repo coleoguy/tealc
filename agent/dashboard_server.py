@@ -48,6 +48,7 @@ if os.path.isdir(PUBLIC_DIR):
 def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -159,6 +160,7 @@ async def inbox():
             import sqlite3 as _sqlite3
             conn = _sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.row_factory = _sqlite3.Row
             from agent.jobs.publish_dashboard import _inbox as _compute_inbox
             inbox_data = _compute_inbox(conn)
@@ -172,6 +174,7 @@ async def inbox():
         import sqlite3 as _sqlite3
         conn = _sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         dismissed_keys = {
             (row[0], row[1])
             for row in conn.execute("SELECT kind, target_id FROM inbox_dismissals")
@@ -221,6 +224,7 @@ async def reviewer_circle():
         import sqlite3 as _sqlite3
         conn = _sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = _sqlite3.Row
         from agent.jobs.publish_dashboard import _reviewer_circle as _compute_rc
         result = _compute_rc(conn)
@@ -846,6 +850,7 @@ async def get_goals():
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
 
         goal_rows = conn.execute(
@@ -939,6 +944,7 @@ async def create_goal(req: GoalCreate):
         now = _now_iso()
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             "INSERT INTO goals(id, name, time_horizon, importance, nas_relevance, status, "
             "success_metric, why, owner, last_touched_by, last_touched_iso, notes, "
@@ -1007,6 +1013,7 @@ async def update_goal(goal_id: str, req: GoalUpdate):
 
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         existing = conn.execute("SELECT id FROM goals WHERE id=?", (goal_id,)).fetchone()
         if existing is None:
@@ -1081,6 +1088,7 @@ async def archive_goal(goal_id: str):
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         existing = conn.execute("SELECT id FROM goals WHERE id=?", (goal_id,)).fetchone()
         if existing is None:
@@ -1118,6 +1126,7 @@ async def create_milestone(req: MilestoneCreate):
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         goal_exists = conn.execute("SELECT id FROM goals WHERE id=?", (req.goal_id,)).fetchone()
         if goal_exists is None:
@@ -1163,6 +1172,7 @@ async def update_milestone(milestone_id: str, req: MilestoneUpdate):
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         existing = conn.execute(
             "SELECT id FROM milestones_v2 WHERE id=?", (milestone_id,)
@@ -1214,6 +1224,7 @@ async def delete_milestone(milestone_id: str):
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         existing = conn.execute(
             "SELECT id FROM milestones_v2 WHERE id=?", (milestone_id,)
@@ -1627,6 +1638,7 @@ async def get_projects(status: str = "active"):
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
 
         valid_filter = {"all", "active", "paused", "done"}
@@ -1716,6 +1728,7 @@ async def update_project(project_id: str, req: ProjectUpdate):
 
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
 
         existing = conn.execute(
@@ -1782,6 +1795,7 @@ async def create_project(req: ProjectUpdate):
 
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
 
         conn.execute(
@@ -1856,6 +1870,7 @@ def _auto_classify_projects() -> dict:
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     rows = conn.execute(
         "SELECT id, name FROM research_projects WHERE project_type IS NULL"
     ).fetchall()

@@ -203,6 +203,7 @@ def _record_subagent_run(
     try:
         conn = _sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             """INSERT INTO subagent_runs
                (started_at, finished_at, task, model, n_steps,

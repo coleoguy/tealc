@@ -403,6 +403,7 @@ def _render_briefing(result: dict, apply: bool) -> tuple[str, str]:
 def _write_briefing(title: str, body: str, urgency: str, metadata: dict) -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """INSERT INTO briefings
                (kind, urgency, title, content_md, metadata_json, created_at)
@@ -449,6 +450,7 @@ def job(apply: Optional[bool] = None, verbose: bool = False) -> str:
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     try:
         result = _sync(conn, apply=apply)
     finally:

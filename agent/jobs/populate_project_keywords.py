@@ -60,6 +60,7 @@ def job() -> str:
     # 2. Pull active projects with empty keywords.
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     try:
         rows = conn.execute(
             "SELECT id, name, description, current_hypothesis "
@@ -108,6 +109,7 @@ def job() -> str:
         try:
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(
                 "UPDATE research_projects SET keywords=? WHERE id=?",
                 (keywords_str, proj_id),

@@ -143,6 +143,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         existing = conn.execute(
             "SELECT id FROM papers_of_the_day WHERE date_iso=?", (today_iso,)
         ).fetchone()
@@ -178,6 +179,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         seen_rows = conn.execute(
             "SELECT doi FROM papers_of_the_day WHERE doi IS NOT NULL"
         ).fetchall()
@@ -195,6 +197,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         kw_rows = conn.execute(
             "SELECT keywords FROM research_projects WHERE status='active' AND keywords IS NOT NULL AND keywords != ''"
         ).fetchall()
@@ -250,6 +253,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             """INSERT OR IGNORE INTO papers_of_the_day
                (date_iso, doi, pubmed_id, title, authors, journal, publication_year,
@@ -290,6 +294,7 @@ def job() -> str:
         )
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
             "VALUES ('paper_of_the_day', 'info', ?, ?, ?)",

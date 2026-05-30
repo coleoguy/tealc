@@ -609,6 +609,7 @@ def job(force: bool = False):
     sources = json.load(open(SOURCES_PATH))
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     client = Anthropic()
 
     # Run each leg independently — one failure must not kill the others

@@ -91,6 +91,7 @@ def infer_domain(project_id: Optional[str], content: str) -> str:
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(DB_PATH)
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=5000")
     c.row_factory = sqlite3.Row
     return c
 

@@ -76,6 +76,7 @@ def job() -> str:
     # 1. Sample recent literature_notes
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     _ensure_table(conn)
 
     try:

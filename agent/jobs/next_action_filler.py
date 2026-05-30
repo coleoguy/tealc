@@ -42,6 +42,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT id, name, description, current_hypothesis FROM research_projects "
             "WHERE status='active' AND (next_action IS NULL OR next_action='') "
@@ -102,6 +103,7 @@ def job() -> str:
     now_iso = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
         "VALUES ('next_action_proposals', 'info', ?, ?, ?)",

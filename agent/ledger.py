@@ -21,11 +21,17 @@ def record_output(
     provenance: dict,
 ) -> int:
     """Insert a row into output_ledger and return its row id."""
+    if not kind or not job_name or not model:
+        raise ValueError(
+            "output_ledger row requires non-empty kind/job_name/model; got "
+            f"kind={kind!r}, job_name={job_name!r}, model={model!r}"
+        )
     created_at = datetime.now(timezone.utc).isoformat()
     provenance_json = json.dumps(provenance)
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     cur = conn.execute(
         """INSERT INTO output_ledger
            (created_at, kind, job_name, model, project_id,
@@ -54,6 +60,7 @@ def update_critic(row_id: int, score: int, notes: str, model: str) -> None:
     critic_ran_at = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """UPDATE output_ledger
            SET critic_score=?, critic_notes=?, critic_model=?, critic_ran_at=?
@@ -71,6 +78,7 @@ def update_user_action(row_id: int, action: str, reason: str | None = None) -> N
     user_action_at = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """UPDATE output_ledger
            SET user_action=?, user_reason=?, user_action_at=?
@@ -112,6 +120,7 @@ def query_outputs(
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         f"SELECT * FROM output_ledger {where} ORDER BY created_at DESC LIMIT ?",
@@ -134,6 +143,7 @@ def get_entry(row_id: int) -> dict | None:
     """Return a single ledger row by id, or None if not found."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     row = conn.execute(
         "SELECT * FROM output_ledger WHERE id = ?", (row_id,)
@@ -186,6 +196,7 @@ def compute_provenance_hashes(ledger_id: int) -> dict:
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "UPDATE output_ledger SET code_sha=?, data_sha=?, prompt_sha=? WHERE id=?",
         (hashes["code_sha"], hashes["data_sha"], hashes["prompt_sha"], ledger_id),
@@ -256,6 +267,7 @@ def request_publish(ledger_id: int, reason: str = "", decided_by: str = "heath")
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "UPDATE output_ledger SET publish_state='embargo', embargo_until=? WHERE id=?",
         (embargo_until, ledger_id),
@@ -303,6 +315,7 @@ def publish_artifact(ledger_id: int, reason: str = "", decided_by: str = "heath"
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """UPDATE output_ledger
            SET publish_state='published', published_at=?, public_url=?
@@ -326,6 +339,7 @@ def unpublish_artifact(ledger_id: int, reason: str = "") -> dict:
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "UPDATE output_ledger SET publish_state='redacted' WHERE id=?",
         (ledger_id,),

@@ -2609,13 +2609,22 @@ def create_calendar_event(
     description: str = "", location: str = "",
     attendee_emails: str = "",
     send_invitations: bool = False,
+    confirmed: bool = False,
 ) -> str:
     """Create a Google Calendar event. start_iso/end_iso are ISO 8601 with timezone
     (e.g. '2026-04-22T14:00:00-05:00'). attendee_emails is a comma-separated string.
-    send_invitations MUST stay False unless Heath has explicitly approved sending invites."""
+    send_invitations MUST stay False unless Heath has explicitly approved sending invites.
+    First call (confirmed=False) returns a PREVIEW; call again with confirmed=True to create."""
     cal, err = _get_google_service("calendar", "v3")
     if err:
         return f"Calendar not connected: {err}"
+    attendees = [e.strip() for e in attendee_emails.split(",") if e.strip()]
+    if not confirmed:
+        att_note = f" with {len(attendees)} attendee(s)" if attendees else ""
+        invite_note = " and SEND invites" if (send_invitations and attendees) else ""
+        return (f"PREVIEW: Would create event '{title}' {start_iso}–{end_iso}"
+                f"{att_note}{invite_note}. To proceed, call again with "
+                f"confirmed=True. To cancel, do nothing.")
     body = {
         "summary": title,
         "description": description,
@@ -2623,9 +2632,8 @@ def create_calendar_event(
         "start": {"dateTime": start_iso},
         "end": {"dateTime": end_iso},
     }
-    if attendee_emails:
-        body["attendees"] = [{"email": e.strip()}
-                             for e in attendee_emails.split(",") if e.strip()]
+    if attendees:
+        body["attendees"] = [{"email": e} for e in attendees]
     try:
         e = cal.events().insert(
             calendarId="primary", body=body,
@@ -2638,21 +2646,41 @@ def create_calendar_event(
 
 @tool
 def update_calendar_event(event_id: str, title: str = "", start_iso: str = "",
-                           end_iso: str = "", description: str = "") -> str:
-    """Update an existing calendar event. Only non-empty args overwrite existing fields."""
+                           end_iso: str = "", description: str = "",
+                           confirmed: bool = False) -> str:
+    """Update an existing calendar event. Only non-empty args overwrite existing fields.
+    First call (confirmed=False) returns a PREVIEW of the field changes; call again
+    with confirmed=True to apply."""
     cal, err = _get_google_service("calendar", "v3")
     if err:
         return f"Calendar not connected: {err}"
     try:
         e = cal.events().get(calendarId="primary", eventId=event_id).execute()
-        if title:
-            e["summary"] = title
-        if description:
-            e["description"] = description
-        if start_iso:
-            e["start"] = {"dateTime": start_iso}
-        if end_iso:
-            e["end"] = {"dateTime": end_iso}
+    except Exception as e:
+        return f"Error fetching event ({type(e).__name__}): {str(e)[:200]}"
+    changes = []
+    if title:
+        changes.append(f"summary: {e.get('summary', '(none)')!r} -> {title!r}")
+    if description:
+        changes.append("description (updated)")
+    if start_iso:
+        changes.append(f"start: {e.get('start', {}).get('dateTime', '?')} -> {start_iso}")
+    if end_iso:
+        changes.append(f"end: {e.get('end', {}).get('dateTime', '?')} -> {end_iso}")
+    if not changes:
+        return "No changes specified (all update fields empty)."
+    if not confirmed:
+        return ("PREVIEW: Would update event — " + "; ".join(changes) +
+                ". To proceed, call again with confirmed=True. To cancel, do nothing.")
+    if title:
+        e["summary"] = title
+    if description:
+        e["description"] = description
+    if start_iso:
+        e["start"] = {"dateTime": start_iso}
+    if end_iso:
+        e["end"] = {"dateTime": end_iso}
+    try:
         cal.events().update(calendarId="primary", eventId=event_id, body=e,
                             sendUpdates="none").execute()
         return f"Updated event {event_id}"
@@ -2812,16 +2840,29 @@ def read_sheet(spreadsheet_id: str, range_a1: str, max_rows: int = 500) -> str:
 
 
 @tool
-def append_rows_to_sheet(spreadsheet_id: str, sheet_name: str, rows_json: str) -> str:
+def append_rows_to_sheet(spreadsheet_id: str, sheet_name: str, rows_json: str,
+                         confirmed: bool = False) -> str:
     """Append rows to a sheet. rows_json is a JSON-encoded list of lists.
     Uses USER_ENTERED so formulas work.
-    spreadsheet_id can be a friendly name from data/known_sheets.json."""
+    spreadsheet_id can be a friendly name from data/known_sheets.json.
+    First call (confirmed=False) returns a PREVIEW; call again with confirmed=True
+    to execute. Required because this can write to curated lab Sheets."""
     svc, err = _get_google_service("sheets", "v4")
     if err:
         return f"Sheets not connected: {err}"
     try:
-        sid = _sheet_id(spreadsheet_id)
         rows = json.loads(rows_json)
+    except Exception as e:
+        return f"Error parsing rows_json ({type(e).__name__}): {str(e)[:200]}"
+    if not confirmed:
+        preview = json.dumps(rows[:3])
+        if len(rows) > 3:
+            preview += " ..."
+        return (f"PREVIEW: Would append {len(rows)} row(s) to '{sheet_name}' in "
+                f"{spreadsheet_id}. First rows: {preview[:300]}. "
+                f"To proceed, call again with confirmed=True. To cancel, do nothing.")
+    try:
+        sid = _sheet_id(spreadsheet_id)
         svc.spreadsheets().values().append(
             spreadsheetId=sid, range=f"{sheet_name}!A1",
             valueInputOption="USER_ENTERED",
@@ -2984,6 +3025,7 @@ def _get_student_db():
     _migrate()
     conn = sqlite3.connect(_db_path())
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -3282,6 +3324,7 @@ def _auto_log_student_mentions(text: str):
         from datetime import timezone as _tz  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         students = conn.execute(
             "SELECT id, full_name, short_name FROM students WHERE status='active'"
         ).fetchall()
@@ -3319,6 +3362,7 @@ def list_grant_opportunities(min_fit: float = 0.5, days_until_deadline: int = 18
         from datetime import timezone as _tz, timedelta  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         today = datetime.now(_tz.utc).date()
         cutoff = (today + timedelta(days=days_until_deadline)).isoformat()
 
@@ -3363,6 +3407,7 @@ def dismiss_grant_opportunity(opportunity_id: int, reason: str) -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT title FROM grant_opportunities WHERE id=?", (opportunity_id,)
         ).fetchone()
@@ -3405,6 +3450,7 @@ def add_intention(kind: str, description: str, target_iso: str = "",
         now = datetime.now().isoformat()
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         cur = conn.execute(
             "INSERT INTO intentions(kind, description, target_iso, priority, status, created_by, context_json, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, 'pending', 'chat', ?, ?, ?)",
@@ -3426,6 +3472,7 @@ def list_intentions(status: str = "pending", limit: int = 25) -> str:
         priority_order = "CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         if status == "all":
             rows = conn.execute(
                 f"SELECT id, kind, description, target_iso, priority, status, created_by, created_at, completed_at, notes "
@@ -3467,6 +3514,7 @@ def complete_intention(intention_id: int, notes: str = "") -> str:
         now = datetime.now().isoformat()
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT description, notes FROM intentions WHERE id=?", (intention_id,)
         ).fetchone()
@@ -3497,6 +3545,7 @@ def abandon_intention(intention_id: int, reason: str) -> str:
         now = datetime.now().isoformat()
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT description, notes FROM intentions WHERE id=?", (intention_id,)
         ).fetchone()
@@ -3527,6 +3576,7 @@ def update_intention(intention_id: int, description: str = "", target_iso: str =
             return f"Error: invalid status '{status}'. Must be one of: {', '.join(sorted(_VALID_STATUSES))}"
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT description, target_iso, priority, status, notes FROM intentions WHERE id=?",
             (intention_id,),
@@ -3564,6 +3614,7 @@ def get_idle_class() -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT idle_class, hours_since_last_chat FROM current_context WHERE id=1"
         ).fetchone()
@@ -3586,6 +3637,7 @@ def get_current_context() -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute("SELECT * FROM current_context WHERE id=1").fetchone()
         conn.close()
         if not row is None:
@@ -3723,6 +3775,7 @@ def list_pending_service_requests(days_back: int = 7) -> str:
         from datetime import timedelta  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         cutoff_dt = datetime.utcnow() - timedelta(days=days_back)
         cutoff_iso = cutoff_dt.isoformat()
         rows = conn.execute(
@@ -3837,6 +3890,7 @@ def get_paper_of_the_day(date_iso: str = "") -> str:
         target = date_iso.strip() if date_iso.strip() else datetime.now(_tz.utc).date().isoformat()
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             """SELECT date_iso, title, authors, journal, publication_year,
                       open_access_url, doi, citations_count,
@@ -3872,6 +3926,7 @@ def list_recent_papers_of_the_day(days_back: int = 7) -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             """SELECT date_iso, title, journal, topic_matched, why_it_matters_md
                FROM papers_of_the_day
@@ -3903,6 +3958,7 @@ def recall_past_conversations(query: str, days_back: int = 30, limit: int = 5) -
         from datetime import timedelta
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         # Date cutoff
         cutoff_iso = (datetime.utcnow() - timedelta(days=days_back)).isoformat()
@@ -3946,6 +4002,7 @@ def list_recent_sessions(limit: int = 10) -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             """
             SELECT thread_id, ended_at, message_count, topics, summary_md
@@ -3981,6 +4038,7 @@ def get_latest_weekly_review() -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT title, content_md, created_at FROM briefings "
             "WHERE kind='weekly_review' ORDER BY id DESC LIMIT 1"
@@ -4005,6 +4063,7 @@ def get_latest_quarterly_retrospective() -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT title, content_md, created_at FROM briefings "
             "WHERE kind='quarterly_retrospective' ORDER BY id DESC LIMIT 1"
@@ -4029,6 +4088,7 @@ def get_latest_nas_metrics() -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT snapshot_iso, total_citations, citations_since_2021, "
             "h_index, i10_index, works_count, top_3_recent_papers_json "
@@ -4074,6 +4134,7 @@ def nas_metrics_trend(weeks_back: int = 12) -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT snapshot_iso, total_citations, h_index, i10_index "
             "FROM nas_metrics ORDER BY snapshot_iso DESC LIMIT ?",
@@ -4132,6 +4193,7 @@ def _get_goals_db():
     _migrate_goals_tables()
     conn = sqlite3.connect(_db_path())
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -4713,6 +4775,7 @@ def get_nas_impact_trend(weeks_back: int = 12) -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT week_start_iso, nas_trajectory_pct, service_drag_pct, "
             "maintenance_pct, unattributed_pct, goal_breakdown_json, total_activity_count "
@@ -4774,6 +4837,7 @@ def list_goal_conflicts(unacknowledged_only: bool = True, days_back: int = 30) -
         from datetime import timedelta  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
         if unacknowledged_only:
             rows = conn.execute(
@@ -4820,6 +4884,7 @@ def acknowledge_goal_conflict(conflict_id: int, response: str = "") -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT id, conflict_type, severity FROM goal_conflicts WHERE id=?",
             (conflict_id,),
@@ -4854,6 +4919,7 @@ def _get_projects_db():
     _migrate_goals_tables()
     conn = sqlite3.connect(_db_path())
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -5158,6 +5224,7 @@ def get_recent_literature_for_project(project_id: str, days_back: int = 14, limi
         from datetime import timedelta  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         since = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
         rows = conn.execute(
             """SELECT title, publication_year, journal, citations_count,
@@ -5196,6 +5263,7 @@ def list_recent_literature_notes(days_back: int = 7, limit: int = 30) -> str:
         from datetime import timedelta  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         since = (datetime.now(timezone.utc) - timedelta(days=days_back)).isoformat()
         rows = conn.execute(
             """SELECT project_id, title, publication_year, journal,
@@ -5231,6 +5299,7 @@ def list_overnight_drafts(unreviewed_only: bool = True, limit: int = 10) -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         if unreviewed_only:
             rows = conn.execute(
                 "SELECT id, project_id, source_artifact_title, drafted_section, "
@@ -5273,6 +5342,7 @@ def list_hypothesis_proposals(project_id: str = "", status: str = "proposed", li
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         tbl = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='hypothesis_proposals'"
         ).fetchone()
@@ -5342,6 +5412,7 @@ def adopt_hypothesis(proposal_id: int, notes: str = "", override_gate: bool = Fa
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT id, project_id, hypothesis_md FROM hypothesis_proposals WHERE id=?",
             (proposal_id,),
@@ -5457,6 +5528,7 @@ def run_hypothesis_tournament(proposal_ids: str) -> str:
 
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         items = []
         for pid in ids:
             row = conn.execute(
@@ -5496,6 +5568,7 @@ def reject_hypothesis(proposal_id: int, reason: str) -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT id, project_id, hypothesis_md FROM hypothesis_proposals WHERE id=?",
             (proposal_id,),
@@ -5525,6 +5598,7 @@ def review_overnight_draft(draft_id: int, outcome: str, notes: str = "") -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT id, drafted_section, project_id FROM overnight_drafts WHERE id=?",
             (draft_id,),
@@ -5565,6 +5639,7 @@ def list_database_flags(sheet_name: str = "", weeks_back: int = 2, category: str
 
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         query_sql = (
             "SELECT sheet_name, spreadsheet_id, run_iso, total_rows, "
@@ -5639,6 +5714,7 @@ def list_analysis_runs(project_id: str = "", weeks_back: int = 4) -> str:
         from datetime import timedelta  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         since = (datetime.now(timezone.utc) - timedelta(weeks=weeks_back)).isoformat()
         if project_id:
             rows = conn.execute(
@@ -5684,6 +5760,7 @@ def get_analysis_run_detail(analysis_id: int) -> str:
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT id, project_id, run_iso, next_action_text, r_code, working_dir, "
             "exit_code, stdout_truncated, stderr_truncated, plot_paths, created_files, "
@@ -6122,6 +6199,7 @@ def list_retrieval_quality(days: int = 7) -> str:
         from datetime import timedelta  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = conn.execute(
             "SELECT project_id, source_job, relevance_score, paper_title, sampled_at, critic_reasoning "
@@ -6172,6 +6250,7 @@ def list_aquarium_audit(days: int = 30) -> str:
         from datetime import timedelta  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = conn.execute(
             "SELECT scanned_at, entries_scanned, leaks_found, incidents_json "
@@ -6261,6 +6340,7 @@ def list_preference_signals(days: int = 30) -> str:
         from datetime import timedelta  # noqa: PLC0415
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = conn.execute(
             "SELECT id, captured_at, signal_type, target_kind, target_id, user_reason "
@@ -6313,6 +6393,7 @@ def record_preference_signal(
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         now_iso = datetime.now(timezone.utc).isoformat()
         conn.execute(
             "INSERT INTO preference_signals (captured_at, signal_type, target_kind, target_id, user_reason) "
@@ -6365,6 +6446,7 @@ def export_state_to_sheet(tab_name: str = "all") -> str:
 
     conn = sqlite3.connect(_db_path())
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
 
     def _rows(table: str, cols: list[str]) -> list[list]:
         query_cols = ", ".join(cols)
@@ -6466,6 +6548,7 @@ def respond_to_review_invitation(briefing_id: int = 0, decision: str = "review")
     try:
         conn = sqlite3.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         if briefing_id == 0:
             # List all unacknowledged review_invitation briefings
@@ -7249,6 +7332,7 @@ def enter_war_room(project_id: str) -> str:
         import sqlite3 as _sql  # noqa: PLC0415
         conn = _sql.connect(_db_path())
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         proj = conn.execute(
             "SELECT id, name, description, current_hypothesis, next_action, data_dir, "
             "output_dir, linked_artifact_id, linked_goal_ids, keywords, notes "

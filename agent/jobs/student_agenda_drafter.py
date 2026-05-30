@@ -56,6 +56,7 @@ def job() -> str:
     # 2. Pull active students
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
 
     student_rows = conn.execute(
         "SELECT id, full_name, short_name, role, primary_project, notes_md "
@@ -183,6 +184,7 @@ def job() -> str:
     now_iso = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
         "VALUES ('student_agenda', 'info', ?, ?, ?)",

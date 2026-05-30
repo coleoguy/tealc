@@ -148,6 +148,7 @@ Be honest about null results. Do not overstate significance. Use plain markdown.
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(DB_PATH)
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=5000")
     return c
 
 

@@ -223,6 +223,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         existing = conn.execute(
             "SELECT COUNT(*) FROM today_plan WHERE date_iso=?", (today_iso,)
         ).fetchone()
@@ -240,6 +241,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         goals = _get_active_goals_with_milestones(conn)
     except Exception:
         goals = []
@@ -252,6 +254,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         intentions = _get_top_intentions(conn)
     except Exception:
         intentions = []
@@ -264,6 +267,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         recent_briefings = _get_last_briefings(conn)
     except Exception:
         recent_briefings = []
@@ -376,6 +380,7 @@ def job() -> str:
         now_iso = datetime.now(timezone.utc).isoformat()
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
             "VALUES ('daily_plan', 'info', ?, ?, ?)",

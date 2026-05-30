@@ -133,6 +133,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT captured_at, signal_type, target_kind, target_id, user_reason "
             "FROM preference_signals "
@@ -213,6 +214,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
             "VALUES ('preference_update', 'info', 'Heath preferences updated', ?, ?)",

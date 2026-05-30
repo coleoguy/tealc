@@ -89,6 +89,7 @@ def _get_last_run_iso() -> str | None:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT created_at FROM output_ledger WHERE job_name=? "
             "ORDER BY created_at DESC LIMIT 1",
@@ -197,6 +198,7 @@ def _run() -> str:
     """Main logic, separated from the @tracked wrapper."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
 
     cols = _get_columns(conn, "hypothesis_proposals")
     if not cols:

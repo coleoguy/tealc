@@ -330,6 +330,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         # --- Gather all stats ---
         exec_stats = _exec_decisions_stats(conn, week_start_iso)
@@ -422,6 +423,7 @@ New this week: {new_grants}
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
             "VALUES ('weekly_review', 'info', ?, ?, ?)",

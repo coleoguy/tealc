@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from dotenv import load_dotenv
 from agent.privacy import public_event
-from agent.scheduler import _migrate
+from agent.scheduler import _migrate, DB_PATH
 from agent.tools import _read_pdf, _read_docx
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,7 +27,11 @@ AQUARIUM_WORKER_SECRET = os.environ.get("AQUARIUM_WORKER_SECRET", "")
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
-DB_PATH = os.path.join(DATA_DIR, "agent.db")
+# DB_PATH is imported from agent.scheduler (canonical off-Drive location:
+# ~/Library/Application Support/tealc/agent.db). The old data/agent.db on Drive
+# is a STALE snapshot — Drive sync zeroed it mid-write twice — and the scheduler
+# writes only to the canonical path. Pointing chat here caused a split-brain
+# where chat saw none of the jobs' briefings. Never reintroduce a local DB_PATH.
 
 # Ensure briefings + job_runs tables exist even if the scheduler has never run
 _migrate()
@@ -41,7 +45,8 @@ AQUARIUM_MAX_EVENTS = 50
 
 OPUS = "claude-opus-4-7"
 SONNET = "claude-sonnet-4-6"
-OPUS_TRIGGERS = {"think hard", "use opus", "deep thinking", "opus", "think carefully", "think deeply"}
+OPUS_TRIGGERS = {"think hard", "use opus", "switch to opus", "deep thinking", "think carefully", "think deeply"}
+SONNET_TRIGGERS = {"use sonnet", "switch to sonnet", "switch back"}
 
 # ---------------------------------------------------------------------------
 # Briefing helpers (sync sqlite3 — reads once on chat start, no async needed)
@@ -53,6 +58,7 @@ _URGENCY_ICON = {"critical": "🚨", "warn": "⚠️", "info": "ℹ️"}
 def _pending_briefings():
     """Return up to 5 unsurfaced briefings, critical-first then newest."""
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA busy_timeout=5000")
     rows = conn.execute(
         "SELECT id, kind, urgency, title, content_md, metadata_json FROM briefings "
         "WHERE surfaced_at IS NULL "
@@ -70,6 +76,7 @@ def _mark_surfaced(ids):
     if not ids:
         return
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA busy_timeout=5000")
     now = datetime.now(timezone.utc).isoformat()
     conn.executemany(
         "UPDATE briefings SET surfaced_at=? WHERE id=?",
@@ -127,10 +134,29 @@ def _log_activity(tool_name: str, tool_input: dict, tool_output: str = ""):
 
 async def _rebuild_graph(model: str):
     from agent.graph import build_graph
+    # Close any prior checkpointer connection so model switches don't leak it.
+    old = cl.user_session.get("conn")
+    if old is not None:
+        try:
+            await old.close()
+        except Exception:
+            pass
     conn = await aiosqlite.connect(DB_PATH)
+    await conn.execute("PRAGMA busy_timeout=5000")
     memory = AsyncSqliteSaver(conn)
+    await memory.setup()  # idempotent; creates checkpoint tables if missing
     cl.user_session.set("conn", conn)
     return build_graph(memory, model=model)
+
+
+@cl.on_chat_end
+async def on_chat_end():
+    conn = cl.user_session.get("conn")
+    if conn is not None:
+        try:
+            await conn.close()
+        except Exception:
+            pass
 
 
 @cl.on_chat_start
@@ -150,6 +176,7 @@ async def on_chat_start():
     try:
         conn_sf = sqlite3.connect(DB_PATH)
         conn_sf.execute("PRAGMA journal_mode=WAL")
+        conn_sf.execute("PRAGMA busy_timeout=5000")
         stalled = conn_sf.execute(
             "SELECT id, name, last_touched_iso FROM goals "
             "WHERE status='active' AND importance=5 AND nas_relevance='high' "
@@ -227,6 +254,7 @@ async def on_chat_start():
     try:
         conn_sc = sqlite3.connect(DB_PATH)
         conn_sc.execute("PRAGMA journal_mode=WAL")
+        conn_sc.execute("PRAGMA busy_timeout=5000")
         sc_row = conn_sc.execute(
             "SELECT thread_id, summary_md, topics, ended_at FROM session_summaries "
             "WHERE ended_at > datetime('now', '-24 hours') "
@@ -404,8 +432,13 @@ async def on_message(message: cl.Message):
     text_lower = message.content.lower()
     current_model = cl.user_session.get("model", SONNET)
 
-    wants_opus = any(t in text_lower for t in OPUS_TRIGGERS)
-    wants_sonnet = any(t in text_lower for t in {"use sonnet", "switch back", "sonnet"})
+    # Position-aware so a message mentioning both ("don't use opus, use sonnet")
+    # honors the LATER instruction. Bare "opus"/"sonnet" are deliberately NOT
+    # triggers — they false-fired on casual mentions ("what did the opus run cost?").
+    opus_pos = max((text_lower.rfind(t) for t in OPUS_TRIGGERS if t in text_lower), default=-1)
+    sonnet_pos = max((text_lower.rfind(t) for t in SONNET_TRIGGERS if t in text_lower), default=-1)
+    wants_opus = opus_pos >= 0 and opus_pos >= sonnet_pos
+    wants_sonnet = sonnet_pos >= 0 and sonnet_pos > opus_pos
 
     if wants_opus and current_model != OPUS:
         graph = await _rebuild_graph(OPUS)

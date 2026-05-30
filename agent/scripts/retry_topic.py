@@ -46,6 +46,7 @@ def _load_paper_findings_for(doi: str, slug: str) -> list[dict]:
     """Load paper_findings rows for a DOI filtered to those tagged with slug."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(

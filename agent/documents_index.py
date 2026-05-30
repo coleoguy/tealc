@@ -22,6 +22,7 @@ _DATA = os.path.normpath(os.path.join(_HERE, "..", "data"))
 def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(_DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     return conn
 

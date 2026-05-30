@@ -399,6 +399,7 @@ def get_top_undercited(
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         if snapshot_iso:
             target_iso = snapshot_iso
@@ -532,6 +533,7 @@ def job(
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         _ensure_table(conn)
         _persist_snapshot(conn, snapshot_iso, with_residuals)
         conn.close()
@@ -577,6 +579,7 @@ def job(
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
             "VALUES ('undercited_papers', 'info', ?, ?, ?)",

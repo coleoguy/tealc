@@ -53,6 +53,7 @@ Focus on empirical claims. Skip methodological statements and generic background
 def _ensure_tables() -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS heath_claims (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,6 +93,7 @@ def _ensure_tables() -> None:
 def _papers_already_extracted() -> set[str]:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     rows = conn.execute("SELECT DISTINCT paper_id FROM heath_claims").fetchall()
     conn.close()
     return {r[0] for r in rows}
@@ -101,6 +103,7 @@ def _get_discussion_sentences(paper_id: str) -> list[dict]:
     """Return discussion/conclusion sentences for a paper from heath_sentences."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         """SELECT sentence_id, sentence, section, year
@@ -119,6 +122,7 @@ def _get_all_paper_ids_with_sentences() -> list[tuple[str, int]]:
     """Return (paper_id, year) pairs that have sentences but no sentinel."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     rows = conn.execute(
         """SELECT DISTINCT paper_id, year
            FROM heath_sentences
@@ -134,6 +138,7 @@ def _insert_claims(claims: list[dict], paper_id: str, year: int,
     now = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     for c in claims:
         # Map sentence_index to sentence_id
         sidx = c.get("sentence_index")

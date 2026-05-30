@@ -269,6 +269,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         snapshots = _load_snapshots(conn)
         latest_impact = _load_latest_impact(conn)
@@ -385,6 +386,7 @@ GAP NOTES:
     try:
         conn2 = sqlite3.connect(DB_PATH)
         conn2.execute("PRAGMA journal_mode=WAL")
+        conn2.execute("PRAGMA busy_timeout=5000")
         conn2.execute(
             "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
             "VALUES ('nas_pipeline_health', 'info', ?, ?, ?)",

@@ -847,6 +847,7 @@ def _upsert_paper_findings(meta: dict, findings: list[dict]) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("DELETE FROM paper_findings WHERE doi=?", (key,))
     for idx, f in enumerate(findings):
         conn.execute(
@@ -876,6 +877,7 @@ def _upsert_topics(slugs: list[str]) -> None:
     title_by_slug = {t.get("slug"): t.get("title", t.get("slug")) for t in known}
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     for slug in slugs:
         title = title_by_slug.get(slug, slug.replace("_", " ").title())
         conn.execute(
@@ -910,6 +912,7 @@ def _upsert_literature_note_with_fingerprint(meta: dict, findings: list[dict]) -
     ) or "(no findings)"
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """INSERT INTO literature_notes
            (project_id, doi, title, authors, journal, publication_year,
@@ -1672,6 +1675,7 @@ def _check_already_ingested(
         return (False, "")
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     try:
         if doi:
             row = conn.execute(

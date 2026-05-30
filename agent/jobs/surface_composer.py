@@ -160,6 +160,7 @@ def _ensure_table() -> None:
     """Create topic_lead_cache table if it doesn't exist."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript(_TOPIC_LEAD_CACHE_DDL)
     conn.commit()
     conn.close()
@@ -168,6 +169,7 @@ def _ensure_table() -> None:
 def _get_cache_row(slug: str) -> dict | None:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     row = conn.execute(
         "SELECT * FROM topic_lead_cache WHERE topic_slug = ?", (slug,)
@@ -181,6 +183,7 @@ def _upsert_cache(slug: str, student_hash: str, researcher_hash: str,
     now = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """INSERT INTO topic_lead_cache
                (topic_slug, student_lead_hash, researcher_lead_hash,
@@ -203,6 +206,7 @@ def _topic_last_updated_from_db(slug: str) -> Optional[str]:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT last_updated FROM topics WHERE slug = ?", (slug,)

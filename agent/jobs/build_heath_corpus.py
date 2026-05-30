@@ -55,6 +55,7 @@ _MAX_CHARS = 400
 def _ensure_tables() -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS heath_sentences (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,6 +75,7 @@ def _ensure_tables() -> None:
 def _already_processed_papers() -> set[str]:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     rows = conn.execute("SELECT DISTINCT paper_id FROM heath_sentences").fetchall()
     conn.close()
     return {r[0] for r in rows}
@@ -84,6 +86,7 @@ def _insert_sentences(rows: list[dict]) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.executemany(
         """INSERT OR IGNORE INTO heath_sentences
            (sentence_id, paper_id, year, section, sentence, created_at)

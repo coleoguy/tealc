@@ -891,6 +891,7 @@ def _load_urgent_priorities() -> str:
         import sqlite3  # noqa: PLC0415
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT id, name, importance, nas_relevance, notes "
             "FROM goals "

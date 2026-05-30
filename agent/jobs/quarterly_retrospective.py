@@ -333,6 +333,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         existing = conn.execute(
             "SELECT 1 FROM briefings WHERE kind='quarterly_retrospective' AND created_at > ?",
             (canon_q_start_iso,),
@@ -349,6 +350,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         goals = _goals_current(conn)
         milestones = _milestones_in_quarter(conn, period_start_iso, period_end_iso)
@@ -441,6 +443,7 @@ Still pending (all time): {intentions['still_pending']}
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         # Ensure quarterly_retrospectives table exists
         conn.execute("""

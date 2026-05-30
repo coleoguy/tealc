@@ -36,6 +36,7 @@ def package_analysis_run(run_id: int) -> str:
     """
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     row = conn.execute(
         "SELECT * FROM analysis_runs WHERE id = ?", (run_id,)

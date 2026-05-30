@@ -857,6 +857,7 @@ def _write_briefing(
 ) -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         """INSERT INTO briefings (kind, urgency, title, content_md, metadata_json, created_at)
            VALUES (?, ?, ?, ?, ?, ?)""",

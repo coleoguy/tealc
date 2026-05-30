@@ -156,6 +156,7 @@ def _load_active_goals(db_path: str) -> list[dict]:
     try:
         conn = sqlite3.connect(db_path)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT id, name, importance, nas_relevance, why, success_metric "
             "FROM goals WHERE status='active' AND importance >= 3 "
@@ -370,6 +371,7 @@ def job() -> str:
     # 3. Open DB connection (one per job run, as per Tealc pattern)
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
 
     client = Anthropic()
     now_iso = datetime.now(timezone.utc).isoformat()

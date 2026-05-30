@@ -233,6 +233,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         tbl = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='research_projects'"
         ).fetchone()
@@ -274,6 +275,7 @@ def job() -> str:
         try:
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             tbl_lit = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='literature_notes'"
             ).fetchone()
@@ -362,6 +364,17 @@ def job() -> str:
                     continue
                 conn = sqlite3.connect(DB_PATH)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=5000")
+                # Idempotency guard: a dashboard re-fire (or overlapping manual run)
+                # must not create a duplicate ungated proposal. Skip exact repeats.
+                if conn.execute(
+                    "SELECT 1 FROM hypothesis_proposals "
+                    "WHERE project_id=? AND hypothesis_md=? LIMIT 1",
+                    (proj_id, hyp_md),
+                ).fetchone():
+                    conn.close()
+                    per_project_results.append(f"dup_skipped: project={proj_id}")
+                    continue
                 _hp_cur = conn.execute(
                     """INSERT INTO hypothesis_proposals
                        (project_id, proposed_iso, hypothesis_md, rationale_md,
@@ -548,6 +561,7 @@ def job() -> str:
             )
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(
                 """INSERT INTO briefings
                    (kind, urgency, title, content_md, created_at)

@@ -68,6 +68,7 @@ def _scheduler_status() -> dict:
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(DB_PATH)
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=5000")
     c.row_factory = sqlite3.Row
     return c
 
@@ -875,8 +876,12 @@ def job() -> str:
         "reviewer_circle": reviewer_circle,
     }
 
-    with open(DASHBOARD_PATH, "w") as f:
+    # Atomic write: the dashboard server polls this file live, so a partial
+    # (torn) write would surface as a 500. Write to a temp file, then replace.
+    _tmp = DASHBOARD_PATH + ".tmp"
+    with open(_tmp, "w") as f:
         json.dump(state, f, indent=2)
+    os.replace(_tmp, DASHBOARD_PATH)
 
     inbox_total = inbox.get("inbox_summary", {}).get("total_pending", 0)
     summary = (

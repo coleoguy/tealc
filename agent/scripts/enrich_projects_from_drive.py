@@ -320,6 +320,7 @@ def _sonnet_extract(project_name, description, artifact_text):
 def _get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     return conn
 

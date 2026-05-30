@@ -187,6 +187,7 @@ def job() -> str:
         if stale:
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             row = conn.execute(
                 "SELECT job_name, finished_at FROM job_runs "
                 "WHERE status='success' AND finished_at > ? "

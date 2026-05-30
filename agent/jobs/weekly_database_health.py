@@ -281,6 +281,7 @@ def job(restrict_to_sheet: str = ""):
             # --- Step 2b: Skip if already run today ---
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             already = conn.execute(
                 "SELECT 1 FROM database_health_runs "
                 "WHERE run_iso LIKE ? AND sheet_name=?",
@@ -309,6 +310,7 @@ def job(restrict_to_sheet: str = ""):
             # --- Step 2g: Insert row ---
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(
                 """INSERT OR IGNORE INTO database_health_runs
                    (run_iso, sheet_name, spreadsheet_id, total_rows,
@@ -349,6 +351,7 @@ def job(restrict_to_sheet: str = ""):
             try:
                 conn = sqlite3.connect(DB_PATH)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=5000")
                 conn.execute(
                     """INSERT OR IGNORE INTO database_health_runs
                        (run_iso, sheet_name, spreadsheet_id, total_rows,
@@ -374,6 +377,7 @@ def job(restrict_to_sheet: str = ""):
         try:
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(
                 """INSERT INTO briefings
                    (kind, urgency, title, content_md, created_at)

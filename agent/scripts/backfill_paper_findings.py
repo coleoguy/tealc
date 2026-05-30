@@ -140,6 +140,7 @@ def insert_findings(key: str, findings: list[dict], fingerprint: str) -> int:
     now = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     n = 0
     try:
         # Remove any pre-existing stragglers before insert to keep idempotent

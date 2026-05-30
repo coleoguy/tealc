@@ -114,6 +114,7 @@ def _migrate_goals_tables():
     """Apply goals SQLite schema. Safe to call multiple times."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS research_projects (
             id TEXT PRIMARY KEY,
@@ -1010,6 +1011,7 @@ def job():
             return f"error: Sheet created but Sheets API unavailable: {err}"
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         _seed_db_from_sheet(sheets_svc, sid, conn)
         conn.close()
         return f"bootstrap: created Sheet {sid}; seeded 6 goals; DB populated (5 tabs incl. Projects)"
@@ -1045,6 +1047,7 @@ def job():
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     results: dict[str, tuple[int, int, int]] = {}
     quota_hit_at: str | None = None
     try:

@@ -66,6 +66,7 @@ def tracked(name: str):
 
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             started = datetime.now(timezone.utc).isoformat()
 
             cur = conn.execute(

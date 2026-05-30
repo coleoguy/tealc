@@ -42,6 +42,7 @@ def job() -> str:
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     now_iso = datetime.now(timezone.utc).isoformat()
     cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
 
@@ -95,6 +96,7 @@ def job() -> str:
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
         "VALUES ('midday_check', 'info', ?, ?, ?)",

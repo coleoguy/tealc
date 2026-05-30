@@ -52,6 +52,7 @@ def _collect_ingest_plan() -> list[tuple[str, list[str]]]:
     """Return [(doi, [slugs])] ordered by first-ingest timestamp."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(

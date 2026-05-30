@@ -71,6 +71,7 @@ def _job_run_summary(hours: int) -> tuple[int, int, int, list[str]]:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT job_name, status, error, output_summary FROM job_runs "
             "WHERE started_at >= ? ORDER BY started_at DESC",
@@ -100,6 +101,7 @@ def _job_run_by_name(hours: int) -> list[tuple[str, int, int, str | None]]:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT job_name, status, output_summary FROM job_runs "
             "WHERE started_at >= ? ORDER BY started_at DESC",
@@ -126,6 +128,7 @@ def _ledger_summary(hours: int) -> tuple[int, dict, list[dict]]:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT id, kind, job_name, project_id, critic_score, created_at "
             "FROM output_ledger WHERE created_at >= ? ORDER BY created_at DESC",
@@ -152,6 +155,7 @@ def _cost_summary(hours: int) -> dict:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT model, tokens_in, tokens_out, cache_read_tokens, estimated_cost_usd "
             "FROM cost_tracking WHERE ts >= ?",
@@ -185,6 +189,7 @@ def _retrieval_quality_trend(days: int = 7) -> dict:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT relevance_score FROM retrieval_quality "
             "WHERE sampled_at >= ? AND relevance_score IS NOT NULL",
@@ -203,6 +208,7 @@ def _aquarium_audit_recent() -> dict | None:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT scanned_at, entries_scanned, leaks_found FROM aquarium_audit_log "
             "ORDER BY scanned_at DESC LIMIT 1"
@@ -219,6 +225,7 @@ def _pending_briefings_count() -> int:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         (n,) = conn.execute(
             "SELECT count(*) FROM briefings WHERE surfaced_at IS NULL"
         ).fetchone()

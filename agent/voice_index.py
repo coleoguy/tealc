@@ -641,6 +641,7 @@ def retrieve_similar_claims(
         from agent.scheduler import DB_PATH  # noqa: PLC0415
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.row_factory = sqlite3.Row
 
         # Check table exists
@@ -722,6 +723,7 @@ def is_foundation_ready() -> bool:
         from agent.scheduler import DB_PATH  # noqa: PLC0415
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         hs = conn.execute(
             "SELECT COUNT(*) FROM heath_sentences WHERE sentence != '__no_text__'"
         ).fetchone()

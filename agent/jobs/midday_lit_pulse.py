@@ -169,6 +169,7 @@ def job() -> str:
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     pick = _pick_next_project(conn, state.get("last_project_id"))
     if pick is None:
         conn.close()

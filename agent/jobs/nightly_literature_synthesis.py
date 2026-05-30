@@ -241,6 +241,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         # Check table exists
         tbl = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='research_projects'"
@@ -304,6 +305,7 @@ def job() -> str:
         try:
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             existing_dois = _get_existing_dois(conn, proj_id)
             conn.close()
         except Exception:
@@ -334,6 +336,7 @@ def job() -> str:
                 now_iso = datetime.now(timezone.utc).isoformat()
                 conn = sqlite3.connect(DB_PATH)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=5000")
                 conn.execute(
                     """INSERT OR IGNORE INTO literature_notes
                        (project_id, doi, pubmed_id, title, authors, journal,

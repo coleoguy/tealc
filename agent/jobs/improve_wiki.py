@@ -334,6 +334,7 @@ def _create_briefing(title: str, content_md: str, urgency: str = "info") -> None
         now = datetime.now(timezone.utc).isoformat()
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
             "VALUES ('wiki_improvement', ?, ?, ?, ?)",

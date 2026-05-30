@@ -119,6 +119,7 @@ def job() -> str:
     try:
         _conn = sqlite3.connect(DB_PATH)
         _conn.execute("PRAGMA journal_mode=WAL")
+        _conn.execute("PRAGMA busy_timeout=5000")
         _tbl_od = _conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='overnight_drafts'"
         ).fetchone()
@@ -157,6 +158,7 @@ def job() -> str:
                     _now_iso = datetime.now(timezone.utc).isoformat()
                     _conn2 = sqlite3.connect(DB_PATH)
                     _conn2.execute("PRAGMA journal_mode=WAL")
+                    _conn2.execute("PRAGMA busy_timeout=5000")
                     _conn2.execute(
                         "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
                         "VALUES ('drafter_paused', 'warn', "
@@ -187,6 +189,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         # Check table exists
         tbl = conn.execute(
@@ -244,6 +247,7 @@ def job() -> str:
                 gids = [g.strip() for g in linked_goal_ids.split(",") if g.strip()]
                 conn = sqlite3.connect(DB_PATH)
                 conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=5000")
                 for gid in gids:
                     # Check if any milestone for this goal has a target_iso within 30 days
                     mrows = conn.execute(
@@ -318,6 +322,27 @@ def job() -> str:
 
     what_is_missing = gap_data.get("what_is_missing", "")
     context_already_present = gap_data.get("context_already_present", "")
+
+    # Idempotency guard: if an unreviewed draft of this exact section for this
+    # project already exists, a re-fire (scheduler misfire or dashboard re-run)
+    # must not pile on a duplicate doc + briefing. Reviewing the pending draft
+    # (which stamps reviewed_at/outcome) clears the guard for a deliberate redraft.
+    # Fail-open: a guard error must never block legitimate drafting.
+    try:
+        _dup_conn = sqlite3.connect(DB_PATH)
+        _dup_conn.execute("PRAGMA journal_mode=WAL")
+        _dup_conn.execute("PRAGMA busy_timeout=5000")
+        _dup = _dup_conn.execute(
+            "SELECT 1 FROM overnight_drafts "
+            "WHERE project_id=? AND drafted_section=? "
+            "AND reviewed_at IS NULL AND outcome IS NULL LIMIT 1",
+            (project_id, section_label),
+        ).fetchone()
+        _dup_conn.close()
+    except Exception:
+        _dup = None
+    if _dup:
+        return f"skipped: unreviewed draft already pending for {project_name} — {section_label}"
 
     # 6. Have Sonnet draft the missing section
     draft_user = (
@@ -439,6 +464,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         cur = conn.execute(
             """INSERT INTO overnight_drafts
                (project_id, source_artifact_id, source_artifact_title, drafted_section,
@@ -468,6 +494,7 @@ def job() -> str:
         try:
             _link_conn = sqlite3.connect(DB_PATH)
             _link_conn.execute("PRAGMA journal_mode=WAL")
+            _link_conn.execute("PRAGMA busy_timeout=5000")
             _link_conn.execute(
                 "UPDATE output_ledger "
                 "SET provenance_json=json_set("
@@ -506,6 +533,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             "INSERT INTO briefings(kind, urgency, title, content_md, metadata_json, created_at) "
             "VALUES ('overnight_draft', ?, ?, ?, ?, ?)",

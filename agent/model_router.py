@@ -120,6 +120,7 @@ def choose_model(
         decided_at = datetime.now(timezone.utc).isoformat()
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             """INSERT INTO model_routing_decisions
                (decided_at, task_type, complexity_hint, chosen_model, reasoning)

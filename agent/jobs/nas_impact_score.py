@@ -282,6 +282,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
 
         # 2. Skip if already computed for this week
         existing = conn.execute(
@@ -430,6 +431,7 @@ Goals with high NAS relevance in the DB:
     try:
         conn2 = sqlite3.connect(DB_PATH)
         conn2.execute("PRAGMA journal_mode=WAL")
+        conn2.execute("PRAGMA busy_timeout=5000")
         conn2.execute(
             """INSERT INTO nas_impact_weekly
                (week_start_iso, week_end_iso,

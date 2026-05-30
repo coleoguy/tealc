@@ -71,6 +71,7 @@ def _fetch_project_row(project_id: str) -> dict[str, Any] | None:
     """Return the research_projects row for *project_id*, or None if not found."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     try:
         row = conn.execute(
             "SELECT id, name, status, current_hypothesis, next_action, last_touched_iso "
@@ -145,7 +146,9 @@ def start_project_session(project_id: str) -> dict:
             progress_md = progress_path.read_text(encoding="utf-8")
         else:
             progress_md = _progress_template(row["name"])
-            progress_path.write_text(progress_md, encoding="utf-8")
+            _tmp = progress_path.parent / (progress_path.name + ".tmp")
+            _tmp.write_text(progress_md, encoding="utf-8")
+            _tmp.replace(progress_path)  # atomic; avoids torn reads by concurrent sessions
     except OSError as exc:
         result["error"] = f"progress.md error: {exc}"
         progress_md = ""
@@ -228,7 +231,9 @@ def end_project_session(
             existing = _progress_template(pname)
 
         updated = existing.rstrip("\n") + "\n" + section
-        progress_path.write_text(updated, encoding="utf-8")
+        _tmp = progress_path.parent / (progress_path.name + ".tmp")
+        _tmp.write_text(updated, encoding="utf-8")
+        _tmp.replace(progress_path)  # atomic; avoids torn reads by concurrent sessions
         appended_chars = len(section)
     except OSError as exc:
         return {
@@ -241,6 +246,7 @@ def end_project_session(
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             "UPDATE research_projects "
             "SET last_touched_iso = ?, last_touched_by = ? "

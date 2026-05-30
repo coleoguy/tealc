@@ -350,6 +350,7 @@ def job() -> str:
     # 5–7. Filter by timestamp, match VIPs, deduplicate, insert briefings
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     now_iso = datetime.now(timezone.utc).isoformat()
     n_new = 0
 

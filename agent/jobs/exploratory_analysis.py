@@ -76,6 +76,7 @@ def _last_exploratory_days_ago(project_id: str) -> float:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT created_at FROM output_ledger "
             "WHERE kind='exploratory_analysis' AND project_id=? "
@@ -116,6 +117,7 @@ def _dir_listing(data_dir: str) -> str:
 def _create_briefing(kind: str, urgency: str, title: str, content_md: str) -> None:
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
         "VALUES (?, ?, ?, ?, ?)",
@@ -150,6 +152,7 @@ def job():
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         projects = conn.execute(
             "SELECT id, name, description, current_hypothesis, keywords, data_dir "
             "FROM research_projects "

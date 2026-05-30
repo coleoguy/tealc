@@ -97,6 +97,7 @@ def job() -> str:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         # Try with keywords column first.
         try:
             rows = conn.execute(
@@ -265,6 +266,7 @@ def job() -> str:
         )
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.execute(
             """INSERT INTO briefings
                (kind, urgency, title, content_md, created_at)

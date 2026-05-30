@@ -139,6 +139,7 @@ def _last_run_days_ago(project_id: str) -> float:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         row = conn.execute(
             "SELECT run_iso FROM analysis_runs WHERE project_id=? "
             "ORDER BY run_iso DESC LIMIT 1",
@@ -158,6 +159,7 @@ def _insert_analysis_run(row: dict) -> int:
     """Insert a row into analysis_runs and return its id."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     cur = conn.execute(
         """INSERT INTO analysis_runs (
             project_id, run_iso, next_action_text, r_code, working_dir,
@@ -189,6 +191,7 @@ def _create_briefing(kind: str, urgency: str, title: str, content_md: str):
     """Write a briefing row."""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute(
         "INSERT INTO briefings(kind, urgency, title, content_md, created_at) "
         "VALUES (?, ?, ?, ?, ?)",
@@ -219,6 +222,7 @@ def job():
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         projects = conn.execute(
             "SELECT id, name, description, current_hypothesis, next_action, "
             "data_dir, output_dir "
@@ -476,6 +480,7 @@ def job():
             # Update the provenance_json in the ledger row
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(
                 "UPDATE output_ledger SET provenance_json=? WHERE id=?",
                 (json.dumps(_ledger_provenance), ledger_row_id),

@@ -219,7 +219,9 @@ LAB_PEOPLE: list[str] = []
 try:
     with open(_PEOPLE_PATH) as f:
         LAB_PEOPLE = json.load(f).get("names", [])
-except FileNotFoundError:
+except (FileNotFoundError, json.JSONDecodeError, OSError):
+    # Malformed/missing roster must not crash import; fall back to the static
+    # DENY_PATTERNS (and the fail-closed branch in _query_is_public_safe).
     LAB_PEOPLE = []
 
 DENY_REGEX = re.compile("|".join(DENY_PATTERNS + [
@@ -303,13 +305,28 @@ def classify_artifact(
     return {"ok": len(blockers) == 0, "kind": kind, "blockers": blockers}
 
 
+# Identifiers that pin a query to a specific (often unpublished/embargoed) work
+# even when the surrounding words look innocuous: DOIs, arXiv IDs, and
+# GenBank/RefSeq-style accessions. A query carrying one of these is never public.
+_ID_LEAK_RE = re.compile(
+    r"(10\.\d{4,}/\S+)"                  # DOI (incl. bioRxiv/medRxiv 10.1101/…)
+    r"|(arxiv:\s*\d{4}\.\d{4,})"         # arXiv ID
+    r"|(\b[A-Z]{1,2}_?\d{5,}(\.\d+)?\b)",  # GenBank/RefSeq accession
+    re.IGNORECASE,
+)
+
+
 def _query_is_public_safe(q: str) -> bool:
     if not q or len(q) > 120:
         return False
-    if DENY_REGEX and DENY_REGEX.search(q):
+    # Fail CLOSED: if the denylist regex failed to build, treat all as unsafe.
+    if DENY_REGEX is None or DENY_REGEX.search(q):
         return False
     # Reject queries that look like emails or contain @ symbols
     if "@" in q:
+        return False
+    # Reject queries carrying a specific work/sequence identifier.
+    if _ID_LEAK_RE.search(q):
         return False
     return True
 

@@ -268,6 +268,7 @@ def job():
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
 
     # Check that session_summaries table exists (schema applied by _migrate)
     tables = [r[0] for r in conn.execute(

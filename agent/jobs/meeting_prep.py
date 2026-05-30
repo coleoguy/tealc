@@ -99,6 +99,7 @@ def _already_prepared(event_id: str) -> bool:
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT id FROM briefings WHERE kind='meeting_prep' AND metadata_json IS NOT NULL",
         ).fetchall()
@@ -108,6 +109,7 @@ def _already_prepared(event_id: str) -> bool:
         # Re-query with the actual column
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         rows = conn.execute(
             "SELECT metadata_json FROM briefings WHERE kind='meeting_prep' AND metadata_json IS NOT NULL",
         ).fetchall()
@@ -259,6 +261,7 @@ def job() -> str:
         try:
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(
                 "INSERT INTO briefings(kind, urgency, title, content_md, metadata_json, created_at) "
                 "VALUES ('meeting_prep', 'info', ?, ?, ?, ?)",

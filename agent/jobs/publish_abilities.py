@@ -270,6 +270,7 @@ def _table_count() -> int:
         import sqlite3 as _sqlite3
         conn = _sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         (n,) = conn.execute(
             "SELECT count(*) FROM sqlite_master WHERE type='table'"
         ).fetchone()
