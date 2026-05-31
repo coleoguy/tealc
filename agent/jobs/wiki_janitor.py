@@ -563,12 +563,37 @@ def check_cross_link_opportunities(
     return summary_lines, candidates_dict
 
 
+# Markdown inline concept links: [label](/knowledge/concepts/<slug>/[#anchor]).
+# Drives the Check-10 auto-fix that delinks targets with no concept card.
+_CONCEPT_MD_LINK_RE = re.compile(
+    r'\[([^\]]+)\]\(/knowledge/concepts/([a-z0-9\-_]+)/?(?:#[^)]*)?\)'
+)
+
+
+def _delink_unresolved_concepts(text: str, existing: set[str]) -> str:
+    """Convert markdown concept links whose card does not exist into plain
+    text: ``[label](/knowledge/concepts/missing/)`` → ``label``.  Links whose
+    slug has a concept card in ``existing`` are left untouched."""
+    def _sub(m: "re.Match[str]") -> str:
+        label, slug = m.group(1), m.group(2)
+        return label if slug not in existing else m.group(0)
+    return _CONCEPT_MD_LINK_RE.sub(_sub, text)
+
+
 def check_orphan_concept_links(
     topics_dir: Path, papers_dir: Path, concepts_dir: Path,
-) -> list[str]:
+    methods_dir: Path | None = None, auto_fix: bool = True,
+) -> tuple[list[str], list[str]]:
     """Check 10: /knowledge/concepts/<slug>/ references that don't resolve to
     a concept card file.  Also flags class="concept-link" href attributes
-    that point at missing slugs (emitted by assets/js/concept-tooltips.js)."""
+    that point at missing slugs (emitted by assets/js/concept-tooltips.js).
+
+    Scans topic, paper, and (when given) method pages.  When ``auto_fix`` is
+    True, unresolved *markdown* concept links are delinked in place
+    ([label](/knowledge/concepts/missing/) → label); links to existing cards
+    are preserved so they re-resolve once the card is built.
+
+    Returns ``(issues, fixed_paths)``."""
     existing: set[str] = set()
     if concepts_dir.exists():
         for md in concepts_dir.glob("*.md"):
@@ -580,7 +605,11 @@ def check_orphan_concept_links(
     href_re = re.compile(r'class="concept-link"[^>]*href="/knowledge/concepts/([a-z0-9\-_]+)/')
 
     issues: list[str] = []
-    for scan_dir in (topics_dir, papers_dir):
+    fixed: list[str] = []
+    scan_dirs = [topics_dir, papers_dir]
+    if methods_dir is not None:
+        scan_dirs.append(methods_dir)
+    for scan_dir in scan_dirs:
         if not scan_dir.exists():
             continue
         for md in sorted(scan_dir.glob("*.md")):
@@ -610,7 +639,16 @@ def check_orphan_concept_links(
                         f"{md.name} → concept-link href /knowledge/concepts/{slug}/ "
                         f"(no concept card)"
                     )
-    return issues
+            # Auto-fix: delink markdown links to non-existent concept cards.
+            if auto_fix:
+                new_text = _delink_unresolved_concepts(text, existing)
+                if new_text != text:
+                    try:
+                        md.write_text(new_text, encoding="utf-8")
+                        fixed.append(md.name)
+                    except Exception as exc:
+                        issues.append(f"{md.name}: concept delink failed: {exc}")
+    return issues, fixed
 
 
 def check_method_missing_citations(
@@ -962,9 +1000,17 @@ def _build_report(results: dict) -> str:
             lines.append(f"- {item}")
         lines.append("")
 
+    delinked = results.get("concept_links_delinked") or []
+    if delinked:
+        lines.append("### 10a. Concept links delinked this run (card not found)")
+        lines.append("")
+        for item in delinked:
+            lines.append(f"- {item}")
+        lines.append("")
+
     total = sum(
         len(v) for k, v in results.items()
-        if k not in ("cross_link_summary", "freshness_auto_added")
+        if k not in ("cross_link_summary", "freshness_auto_added", "concept_links_delinked")
     )
     lines.append(f"---\n**Total issues: {total}** (check 9 produces candidates only, not counted as issues)")
     return "\n".join(lines)
@@ -995,6 +1041,10 @@ def job() -> str:
         topics_dir, papers_dir, auto_add=auto_add,
     )
 
+    concept_link_issues, concept_links_delinked = check_orphan_concept_links(
+        topics_dir, papers_dir, _CONCEPTS_DIR, methods_dir=_METHODS_DIR,
+    )
+
     results: dict[str, list[str]] = {
         "missing_category":        check_missing_category(topics_dir),
         "stub_titles":             check_stub_titles(papers_dir),
@@ -1005,7 +1055,8 @@ def job() -> str:
         "silent_paper_refs":       check_silent_paper_refs(topics_dir, papers_dir),
         "broken_slug_links":       check_broken_slug_links(topics_dir, papers_dir),
         "cross_link_summary":      cross_link_summary,  # summary strings, not counted as issues
-        "orphan_concept_links":    check_orphan_concept_links(topics_dir, papers_dir, _CONCEPTS_DIR),
+        "orphan_concept_links":    concept_link_issues,
+        "concept_links_delinked":  concept_links_delinked,  # informational; not counted as issues
         "method_missing_citations": check_method_missing_citations(_METHODS_DIR, papers_dir),
         "orphan_freshness":        freshness_warnings,
         "freshness_auto_added":    freshness_added,  # informational; not counted as issues
@@ -1016,7 +1067,7 @@ def job() -> str:
     # cross_link_summary + freshness_auto_added are informational only
     total_issues = sum(
         len(v) for k, v in results.items()
-        if k not in ("cross_link_summary", "freshness_auto_added")
+        if k not in ("cross_link_summary", "freshness_auto_added", "concept_links_delinked")
     )
     has_errors = bool(results["subindex_files"]) or any(
         "[ERROR]" in item for item in results["broken_slug_links"]

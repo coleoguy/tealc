@@ -65,6 +65,7 @@ _WEBSITE_REPO = os.environ.get(
 )
 _OUTPUT_DIR = Path(_WEBSITE_REPO) / "knowledge" / "projects"
 _INDEX_FILE = _OUTPUT_DIR / "index.md"
+_PAPERS_DIR = Path(_WEBSITE_REPO) / "knowledge" / "papers"
 
 _JOB_NAME = "projects_mirror"
 
@@ -161,6 +162,18 @@ def _paper_slug_from_doi(doi: str | None) -> str | None:
     return doi.replace("/", "_").replace(".", "_")
 
 
+def _paper_page_exists(slug: str | None) -> bool:
+    """True if a wiki page has actually been built for this paper slug.
+
+    Only a curated subset of cited papers get a wiki_pipeline-built page, so a
+    project must not hard-link every DOI to /knowledge/papers/<slug>/ — most of
+    those targets do not exist and 404.  When no page exists the caller falls
+    back to the external DOI link instead (see _render_project_page)."""
+    if not slug:
+        return False
+    return (_PAPERS_DIR / f"{slug}.md").exists()
+
+
 # ---------------------------------------------------------------------------
 # Template renderers
 # ---------------------------------------------------------------------------
@@ -200,6 +213,10 @@ def _render_project_page(proj: dict, proj_cols: set[str], papers: list[dict]) ->
         fm_lines.append(f'keywords: "{keywords}"')
     if linked_artifact_id:
         fm_lines.append(f"linked_artifact_id: {linked_artifact_id}")
+        # Generic Drive open-by-id redirect handles Docs, Sheets, Slides, folders.
+        fm_lines.append(
+            f"linked_artifact_url: https://drive.google.com/open?id={linked_artifact_id}"
+        )
     if last_updated:
         fm_lines.append(f"last_updated: {last_updated}")
     fm_lines.append("---")
@@ -235,7 +252,11 @@ def _render_project_page(proj: dict, proj_cols: set[str], papers: list[dict]) ->
             "",
         ]
     if linked_artifact_id:
-        body_lines += [f"**Linked artifact:** {linked_artifact_id}", ""]
+        artifact_url = f"https://drive.google.com/open?id={linked_artifact_id}"
+        body_lines += [
+            f"**Linked artifact:** [{linked_artifact_id}]({artifact_url})",
+            "",
+        ]
     body_lines.append("<!-- tealc:project-status-end -->")
     body_lines.append("")
 
@@ -248,8 +269,14 @@ def _render_project_page(proj: dict, proj_cols: set[str], papers: list[dict]) ->
             p_title = paper.get("title") or "Untitled"
             doi = paper.get("doi")
             slug = _paper_slug_from_doi(doi)
-            if slug:
+            if slug and _paper_page_exists(slug):
+                # A wiki page exists for this paper → link to it internally.
                 body_lines.append(f"- [{p_title}](/knowledge/papers/{slug}/)")
+            elif doi and str(doi).startswith("10."):
+                # No internal page yet → link the external DOI so it resolves
+                # instead of 404ing.  Self-heals: once wiki_pipeline builds the
+                # page, the next mirror run emits the internal link above.
+                body_lines.append(f"- [{p_title}](https://doi.org/{doi})")
             else:
                 body_lines.append(f"- {p_title}")
         body_lines.append("")
@@ -288,20 +315,30 @@ def _render_index_page(projects: list[dict], now_iso: str) -> str:
         lines.append("")
         return "\n".join(lines)
 
+    # Friendly labels for the lifecycle stage column.
+    stage_labels = {
+        "in_development": "In development",
+        "data_collection": "Data collection",
+        "finalizing_manuscript": "Finalizing manuscript",
+        "under_review": "Under review",
+        "published": "Published",
+    }
+
     # Table header
     lines += [
-        "| Project | Status | Current hypothesis | Last updated |",
-        "|---|---|---|---|",
+        "| Project | Status | Stage | Lead | Last updated |",
+        "|---|---|---|---|---|",
     ]
     for proj in sorted(projects, key=lambda p: _g(p, "name", "id")):
         project_id = _g(proj, "id")
         title = _g(proj, "name", default=project_id.replace("_", " ").title())
         status = _g(proj, "status", default="—")
-        hyp = _g(proj, "current_hypothesis")
-        hyp_short = textwrap.shorten(hyp, width=80, placeholder="…") if hyp else "—"
+        stage_raw = _g(proj, "stage")
+        stage = stage_labels.get(stage_raw, stage_raw) if stage_raw else "—"
+        lead = _g(proj, "lead_name") or "—"
         last_upd = _g(proj, "last_touched_iso", "synced_at", default="—")
         link = f"[{title}](/knowledge/projects/{project_id}/)"
-        lines.append(f"| {link} | {status} | {hyp_short} | {last_upd} |")
+        lines.append(f"| {link} | {status} | {stage} | {lead} | {last_upd} |")
 
     lines.append("")
     return "\n".join(lines)
@@ -338,23 +375,36 @@ def _run(dry_run: bool = False) -> str:
     conn.row_factory = sqlite3.Row
     has_type = "project_type" in proj_cols
     has_status = "status" in proj_cols
+    has_stage = "stage" in proj_cols
+    has_include = "include_in_wiki" in proj_cols
 
     where = []
     if has_type:
         where.append("(project_type='paper' OR project_type IS NULL)")
     if has_status:
         where.append("status='active'")
+    # Lifecycle/visibility gates: published projects drop off the public list,
+    # and explicit include_in_wiki=0 hides any project regardless of stage.
+    if has_stage:
+        where.append("(stage IS NULL OR stage != 'published')")
+    if has_include:
+        where.append("(include_in_wiki IS NULL OR include_in_wiki = 1)")
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         f"SELECT * FROM research_projects{clause} ORDER BY id"
     ).fetchall()
 
     if not rows and has_status and has_type:
-        # Fall back: any paper project (regardless of status)
+        # Fall back: any paper project (regardless of status), still respecting visibility.
+        fallback_where = ["(project_type='paper' OR project_type IS NULL)"]
+        if has_stage:
+            fallback_where.append("(stage IS NULL OR stage != 'published')")
+        if has_include:
+            fallback_where.append("(include_in_wiki IS NULL OR include_in_wiki = 1)")
         rows = conn.execute(
-            "SELECT * FROM research_projects "
-            "WHERE project_type='paper' OR project_type IS NULL "
-            "ORDER BY id"
+            "SELECT * FROM research_projects WHERE "
+            + " AND ".join(fallback_where)
+            + " ORDER BY id"
         ).fetchall()
     elif not rows:
         rows = conn.execute("SELECT * FROM research_projects ORDER BY id").fetchall()
