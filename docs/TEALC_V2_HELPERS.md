@@ -113,7 +113,7 @@ and hype avoidance. Called after every significant artifact is generated.
   overall_notes, model, tokens_in, tokens_out, cache_read_tokens, cache_write_tokens}`.
   Automatically calls `cost_tracking.record_call`.
 
-**Rubrics:** `"default"`, `"grant_draft"`, `"hypothesis"`, `"analysis"`
+**Rubrics:** `"default"`, `"grant_draft"`, `"hypothesis"`, `"analysis"`, `"wiki_edit"`, `"repo_note"`
 
 **Prompt caching:** The rubric block is marked `cache_control: ephemeral`, so repeated
 calls within 5 minutes amortize the rubric input cost (~70% cache hit rate expected).

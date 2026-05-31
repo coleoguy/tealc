@@ -2384,9 +2384,20 @@ def _gdoc_find_text_range(doc: dict, target: str) -> "tuple[int|None, int|None]"
     """Find first occurrence of `target` in the doc body and return its
     (startIndex, endIndex) global document indices. Walks all paragraph
     runs and flattens — handles target text that spans multiple text runs
-    (e.g. a phrase that crosses a hyperlink boundary). Returns (None, None)
-    if target is not found.
+    (e.g. a phrase that crosses a hyperlink boundary).
+
+    Match strategy: try verbatim first, then a whitespace-collapsed match
+    (treats any run of \\s as a single space) so anchors with stray newlines,
+    soft line breaks, or double spaces still land. Verbatim-but-different-
+    whitespace anchors are the dominant failure mode for prose-tightening
+    suggestions, so falling through to relaxed matching matters a lot. We
+    do NOT attempt fuzzy/Levenshtein matches because applying markup to the
+    wrong location is worse than failing to apply it (the orchestrator
+    converts unmatched anchors to comments).
+
+    Returns (None, None) if target is not found under either strategy.
     """
+    import re as _re_local
     pieces: list[tuple[int, str]] = []
     for elem in doc.get("body", {}).get("content", []) or []:
         para = elem.get("paragraph")
@@ -2411,11 +2422,48 @@ def _gdoc_find_text_range(doc: dict, target: str) -> "tuple[int|None, int|None]"
             flat_to_global.append(global_start + i)
     flat = "".join(flat_chars)
 
+    # Strategy 1: verbatim match
     pos = flat.find(target)
-    if pos == -1 or pos + len(target) > len(flat_to_global):
+    if pos != -1 and pos + len(target) <= len(flat_to_global):
+        start = flat_to_global[pos]
+        end = flat_to_global[pos + len(target) - 1] + 1
+        return start, end
+
+    # Strategy 2: whitespace-collapsed match. Build a normalized string
+    # where every \s+ run becomes a single space, plus a parallel array
+    # mapping each normalized index back to the corresponding flat index.
+    norm_chars: list[str] = []
+    norm_to_flat: list[int] = []
+    prev_was_ws = False
+    for fi, ch in enumerate(flat):
+        if ch.isspace():
+            if prev_was_ws:
+                continue
+            norm_chars.append(" ")
+            norm_to_flat.append(fi)
+            prev_was_ws = True
+        else:
+            norm_chars.append(ch)
+            norm_to_flat.append(fi)
+            prev_was_ws = False
+    norm_flat = "".join(norm_chars)
+    norm_target = _re_local.sub(r"\s+", " ", target).strip()
+    if not norm_target:
         return None, None
-    start = flat_to_global[pos]
-    end = flat_to_global[pos + len(target) - 1] + 1
+    pos2 = norm_flat.find(norm_target)
+    if pos2 == -1:
+        # try one more time with leading/trailing space tolerance
+        pos2 = norm_flat.lstrip().find(norm_target)
+        if pos2 == -1:
+            return None, None
+        # adjust pos2 to account for the lstrip
+        pos2 += len(norm_flat) - len(norm_flat.lstrip())
+    if pos2 + len(norm_target) > len(norm_to_flat):
+        return None, None
+    start_flat = norm_to_flat[pos2]
+    end_flat_inclusive = norm_to_flat[pos2 + len(norm_target) - 1]
+    start = flat_to_global[start_flat]
+    end = flat_to_global[end_flat_inclusive] + 1
     return start, end
 
 
@@ -2584,12 +2632,40 @@ def mark_changes_in_google_doc(doc_id: str, changes_json: str, color: str = "red
 
 @tool
 def insert_comment_in_google_doc(doc_id: str, anchor_text: str, comment: str) -> str:
-    """Add a margin comment anchored to the first occurrence of anchor_text.
-    Use for suggestions Heath should consider rather than direct edits."""
+    """Add a margin comment to a Google Doc via the Drive Comments API.
+
+    The comment appears in the right margin and quotes anchor_text so the
+    reader can locate the relevant passage. If anchor_text is empty, the
+    comment is created unanchored on the file.
+
+    Use this for substantive issues that benefit from prose explanation —
+    things that aren't simple find-and-replace edits. For mechanical edits,
+    use mark_changes_in_google_doc instead.
+
+    Returns "OK: <comment-id>" on success or "Error: <reason>" on failure.
+    The pre-submission review orchestrator parses the return string to
+    track which comments landed.
+    """
+    drive, err = _drive_service()
+    if err:
+        return f"Error: Drive not connected: {err}"
+    body: dict = {"content": comment}
+    if anchor_text and anchor_text.strip():
+        # quotedFileContent shows the anchor text in the comment; the API
+        # cap is 1024 chars but practical anchors stay much shorter.
+        body["quotedFileContent"] = {
+            "value": anchor_text[:1000],
+            "mimeType": "text/plain",
+        }
     try:
-        return "comment insertion deferred — use replace_in_google_doc to edit instead"
+        result = drive.comments().create(
+            fileId=doc_id,
+            body=body,
+            fields="id",
+        ).execute()
+        return f"OK: comment {result.get('id', '?')} added"
     except Exception as e:
-        return f"Error ({type(e).__name__}): {str(e)[:200]}"
+        return f"Error inserting comment ({type(e).__name__}): {str(e)[:200]}"
 
 
 # ---------------------------------------------------------------------------
@@ -6841,7 +6917,7 @@ def find_project_manuscript(project: str) -> str:
 
     Returns a markdown table of ranked candidates. The top row is the
     recommended path to use as `manuscript_path` in
-    run_pre_submission_review.
+    pre_submission_review.
     """
     proj_id, proj_name, data_dir = _resolve_project_dir(project)
     if not data_dir or not os.path.isdir(data_dir):
@@ -6903,15 +6979,16 @@ def find_project_manuscript(project: str) -> str:
         f"**Recommended:** `{top}`",
         "",
         f"To run the pre-submission review:",
-        f"  `run_pre_submission_review(manuscript_path=\"{top}\", venue=\"<journal>\")`",
+        f"  `pre_submission_review(manuscript_path=\"{top}\", venue=\"<journal>\")`",
     ])
     return "\n".join(out)
 
 
 @tool
-def run_pre_submission_review(
+def pre_submission_review(
     manuscript_path: str = "",
     project: str = "",
+    doc_url: str = "",
     venue: str = "journal_generic",
     target_doc_title: str = "",
 ) -> str:
@@ -6924,24 +7001,32 @@ def run_pre_submission_review(
     summary, never falls back to a journal-style prose review.
 
     Pipeline:
-      1. Read manuscript via read_local_file (handles .gdoc / .docx / .pdf)
+      1. Resolve source from doc_url, manuscript_path, or project (fastest
+         to slowest); read manuscript text
       2. Dispatch 5 parallel specialist subagents (Methods Auditor, Logic
          Checker, Adversarial Reader, Citation Verifier, Presentation) via
          run_parallel_subagents — each emits structured-JSON findings
       3. Synthesizer LLM call (Opus): merges + dedupes findings, ranks by
          severity, classifies fix_type (TEXT_REPLACE / INSERT / DELETE /
          COMMENT)
-      4. Copy the Google Doc via Drive API (only if input was a .gdoc;
+      4. Copy the Google Doc via Drive API (only if input was a Google Doc;
          else skip to step 6)
       5. Apply markup: mark_changes_in_google_doc for the inline edits +
          insert_comment_in_google_doc for the COMMENT findings
       6. Write sidecar summary.md with finding counts + top issues
       7. Return the URL + summary
 
-    Parameters
+    Parameters (pass exactly one of the three source inputs)
     ----------
-    manuscript_path : path to a .gdoc / .docx / .pdf in any of the
-      resolution roots (Drive root, lab root, or absolute). REQUIRED.
+    doc_url : a Google Doc URL or bare doc_id. Fastest path — skips all
+      Drive lookup. Use whenever Heath pastes a docs.google.com link. Examples:
+        "https://docs.google.com/document/d/1AOrf6A1U34xQ7-xEifKR1rnJ_wxG36rg7waQV2fWZPQ/edit"
+        "1AOrf6A1U34xQ7-xEifKR1rnJ_wxG36rg7waQV2fWZPQ"
+    manuscript_path : path to a .gdoc / .docx / .pdf file in any of the
+      resolution roots (Drive root, lab root, or absolute).
+    project : project ID, name, or name fragment. Tool uses
+      find_project_manuscript to auto-locate the manuscript.
+
     venue : journal/funder rubric. One of journal_generic, nature_tier,
       MIRA_study_section, NSF_DEB, google_org_grant, Am_Nat, Evolution,
       MBE, JEB, eLife, PNAS. Default: journal_generic.
@@ -6957,20 +7042,52 @@ def run_pre_submission_review(
     individually — the LLM-driven multi-step approach has been observed
     to skip steps and fall back to single-shot prose. This tool guarantees
     the right output shape.
-
-    If you don't have a path, pass `project` (project ID, name, or name
-    fragment) and the tool will use find_project_manuscript to locate
-    the current manuscript automatically — no Drive search loop needed.
     """
     import json as _json
+    import re as _re
     from datetime import datetime as _dt, timezone as _tz
     from pathlib import Path as _Path
     from agent.subagents import run_parallel_subagents  # noqa: PLC0415
 
-    # ---- Step 0: resolve manuscript_path from project if needed ----
-    if not manuscript_path and project:
+    today_iso = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+    text = ""
+    source_doc_id: str | None = None
+    is_gdoc = False
+    manuscript_stem = ""
+
+    # ---- Step 0: resolve source. doc_url > manuscript_path > project. ----
+    if doc_url:
+        # User pasted a Google Docs URL or just the doc_id — skip all Drive
+        # path lookup and read content directly via the Drive API.
+        m = _re.search(r"/document/d/([a-zA-Z0-9_-]+)", doc_url)
+        if m:
+            source_doc_id = m.group(1)
+        elif _re.match(r"^[a-zA-Z0-9_-]{20,}$", doc_url.strip()):
+            source_doc_id = doc_url.strip()
+        else:
+            return (
+                f"Could not extract a doc_id from doc_url={doc_url!r}. "
+                f"Pass a Google Docs URL like "
+                f"'https://docs.google.com/document/d/<id>/edit' or just the bare <id>."
+            )
+        drive_text = read_drive_file.invoke({
+            "file_id": source_doc_id, "max_chars": 500000,
+        })
+        if drive_text.startswith(("Error reading file:", "Drive not connected:")):
+            return f"FAILED reading doc {source_doc_id}: {drive_text}"
+        # read_drive_file prefixes "**<title>**\n\n"; split it off for use as the stem.
+        title_match = _re.match(r"^\*\*(.+?)\*\*\n\n", drive_text, _re.DOTALL)
+        if title_match:
+            manuscript_stem = title_match.group(1)
+            text = drive_text[title_match.end():]
+        else:
+            manuscript_stem = source_doc_id
+            text = drive_text
+        is_gdoc = True
+
+    elif project and not manuscript_path:
         finder_result = find_project_manuscript.invoke({"project": project})
-        # find_project_manuscript returns markdown including a "**Recommended:** `<path>`" line
+        # find_project_manuscript returns markdown with a "**Recommended:** `<path>`" line
         recommended = None
         for line in finder_result.splitlines():
             if line.startswith("**Recommended:**"):
@@ -6982,35 +7099,29 @@ def run_pre_submission_review(
                 f"find_project_manuscript said:\n\n{finder_result[:1500]}"
             )
         manuscript_path = recommended
-    if not manuscript_path:
-        return (
-            "Either `manuscript_path` or `project` must be provided. "
-            "Pass a manuscript file path directly, or pass a project ID / "
-            "name and the tool will auto-locate the manuscript."
-        )
 
-    # ---- Step 1: read manuscript ----
-    text = read_local_file.invoke({"path": manuscript_path, "max_chars": 500000})
-    if text.startswith("File not found:") or text.startswith("Unsupported"):
-        return f"FAILED at step 1 (read manuscript): {text}"
-    if text.startswith("Error reading file:"):
-        return f"FAILED at step 1 (read manuscript): {text}"
-
-    # Detect input format from extension
-    ext = os.path.splitext(manuscript_path)[1].lower()
-    is_gdoc = ext == ".gdoc"
-    source_doc_id = None
-    if is_gdoc:
-        try:
-            with open(manuscript_path, "r", encoding="utf-8") as fh:
-                source_doc_id = (_json.load(fh).get("doc_id") or "").strip()
-        except Exception as exc:
-            return f"FAILED reading .gdoc shortcut JSON: {exc}"
-        if not source_doc_id:
-            return f"FAILED: .gdoc shortcut at {manuscript_path!r} has no doc_id"
-
-    manuscript_stem = _Path(manuscript_path).stem
-    today_iso = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+    if not source_doc_id:
+        # Came in via manuscript_path (or project resolved to one).
+        if not manuscript_path:
+            return (
+                "Pass exactly one source: `doc_url` (Google Docs URL/ID), "
+                "`manuscript_path` (file path), or `project` (project ID/name)."
+            )
+        # ---- Step 1: read manuscript from local path ----
+        text = read_local_file.invoke({"path": manuscript_path, "max_chars": 500000})
+        if text.startswith(("File not found:", "Unsupported", "Error reading file:")):
+            return f"FAILED at step 1 (read manuscript): {text}"
+        ext = os.path.splitext(manuscript_path)[1].lower()
+        is_gdoc = ext == ".gdoc"
+        if is_gdoc:
+            try:
+                with open(manuscript_path, "r", encoding="utf-8") as fh:
+                    source_doc_id = (_json.load(fh).get("doc_id") or "").strip()
+            except Exception as exc:
+                return f"FAILED reading .gdoc shortcut JSON: {exc}"
+            if not source_doc_id:
+                return f"FAILED: .gdoc shortcut at {manuscript_path!r} has no doc_id"
+        manuscript_stem = _Path(manuscript_path).stem
 
     # Truncate manuscript for subagent context (keep within sane size)
     manuscript_excerpt = text[:60000]
@@ -7023,56 +7134,179 @@ def run_pre_submission_review(
         )
 
     # ---- Step 2: parallel specialists ----
+    # Shared rubric + anti-sycophancy preamble. Without these, Sonnet 4.6
+    # defaults every finding to POLISH (the safest tier) and refuses to call
+    # anything BLOCKING — observed empirically: 63 POLISH / 0 BLOCKING /
+    # 0 SHOULD_FIX on a manuscript that genuinely had structural issues.
+    _stance = (
+        "STANCE: You are reviewing this manuscript adversarially as a hostile "
+        "external reviewer. Heath Blackmon is the author. The single worst "
+        "failure mode of this pipeline is sycophancy — softening findings "
+        "because the author is internal. DO NOT do that. Heath asked for this "
+        "review SO YOU FIND THE PROBLEMS BEFORE A REAL REVIEWER DOES. A polite "
+        "review that says everything is fine is worthless to him.\n\n"
+        "SEVERITY RUBRIC (apply strictly — do not down-tier when uncertain):\n"
+        "  - BLOCKING: paper cannot be submitted as-is. Methodological flaw, "
+        "missing critical analysis, claim not supported by data, internal "
+        "contradiction, statistical error that changes a conclusion.\n"
+        "  - SHOULD_FIX: a competent peer reviewer WILL flag this in their "
+        "review. Questionable assumption stated as fact, weak control, "
+        "unclear methods description, ambiguous figure, citation gap on a "
+        "load-bearing claim, overclaim relative to evidence.\n"
+        "  - POLISH: prose tightening, awkward sentence, stylistic issue, "
+        "minor formatting. NOT for substantive concerns — anything that "
+        "affects how the paper is JUDGED belongs in BLOCKING or SHOULD_FIX.\n\n"
+        "EXPECTED CALIBRATION: a typical genomics/evolution manuscript at "
+        "pre-submission stage has 2-8 BLOCKING + SHOULD_FIX issues that are "
+        "worth flagging. If your output is 100% POLISH or has zero BLOCKING/"
+        "SHOULD_FIX findings, re-read more skeptically before submitting — "
+        "that distribution is almost always wrong.\n\n"
+        "FIX_TYPE RUBRIC — match the type to whether the author can "
+        "accept-or-reject at a glance, or has to actually think.\n"
+        "  - TEXT_REPLACE: SIMPLE surgical edits — prose tightening, "
+        "typos, factual corrections (where the right answer is obvious), "
+        "citation format fixes, terminology cleanup, unit standardization. "
+        "Must be ≤2 sentences and unambiguous. The author hits Accept "
+        "without thinking. Most POLISH findings live here. The pipeline "
+        "auto-converts failed TEXT_REPLACE anchors to comments, so write "
+        "the suggestion concretely.\n"
+        "  - INSERT: discrete missing items where the addition is "
+        "concrete and short — missing citation, missing N=, missing "
+        "p-value, missing units, missing definition.\n"
+        "  - DELETE: redundant sentences, broken cross-refs, "
+        "contradictory passages with no judgment call.\n"
+        "  - COMMENT: anything that requires the author to ENGAGE — "
+        "methodological gaps that need a new analysis, claim-evidence "
+        "mismatches that need restructuring, citation gaps that need "
+        "the author to find the right paper, structural concerns "
+        "(reorganize the Discussion, split a paragraph), choices "
+        "between options, open questions, requests to verify. Most "
+        "BLOCKING and SHOULD_FIX findings belong here — the author "
+        "needs to think about them, not just hit Accept on a one-line "
+        "edit. If you find yourself writing a TEXT_REPLACE where the "
+        "new_text basically rewrites a paragraph and changes the "
+        "argument, that's a COMMENT, not a TEXT_REPLACE.\n\n"
+        "EXPECTED MIX: in a typical genomics manuscript review you "
+        "should produce roughly: 15-30 TEXT_REPLACE (mostly prose "
+        "tightening from the Presentation Agent), 3-8 INSERT/DELETE, "
+        "and 5-15 COMMENT (most of the BLOCKING/SHOULD_FIX issues "
+        "from Methods/Logic/Adversarial). If your output has zero "
+        "COMMENTs you missed the substantive concerns; if it has zero "
+        "TEXT_REPLACEs you missed the prose work.\n\n"
+        "VOICE: comment bodies (the `comment` field) read like a senior "
+        "scientist talking to a student, NOT a peer-review report. Keep "
+        "them short, conversational, lowercase-natural, imperative when "
+        "suggesting a fix. Don't write 'a hostile reviewer would attack...' "
+        "in the body — write 'add a power analysis here, otherwise reviewer "
+        "2 will hit you on the BiSSE sample size.' Don't tag the body with "
+        "[BLOCKING]/[Should fix]/[Polish] — severity goes in the JSON, the "
+        "comment body is just the comment.\n\n"
+    )
+    _output_schema = (
+        "Output ONLY a JSON array of findings (no prose, no markdown fences). "
+        "Each finding: "
+        '{"agent":"<your-role>","section":"Methods|Results|Discussion|Abstract|...",'
+        '"location_quote":"<verbatim text from manuscript that anchors the issue>",'
+        '"severity":"BLOCKING|SHOULD_FIX|POLISH",'
+        '"issue":"<one sentence stating the problem>",'
+        '"rationale":"<why a reviewer cares; what the consequence is>",'
+        '"fix_type":"TEXT_REPLACE|INSERT|DELETE|COMMENT",'
+        '"old_text":"<verbatim if TEXT_REPLACE/DELETE>",'
+        '"new_text":"<replacement if TEXT_REPLACE/INSERT>",'
+        '"comment":"<full body for the margin comment, including reasoning>"}'
+    )
+    _venue_line = f"Target venue: {venue}.\n\n"
+    _manuscript_block = "\n\nManuscript:\n\n" + manuscript_excerpt + truncated_note
+
     specialist_prompts = [
         (
-            "You are the METHODS AUDITOR for a pre-submission review. Identify "
-            "every methodological issue a hostile reviewer would flag: stat "
-            "assumptions, sample size, blinding, multiple-testing correction, "
-            "missing controls, model misuse, R/Python reproducibility gaps. "
-            "Target venue: " + venue + ". Heath authored this — be ruthless on "
-            "rigor; your job is to find issues so he can fix them BEFORE "
-            "submission, not so a reviewer can score them.\n\n"
-            "Output ONLY a JSON array of findings (no prose, no markdown). "
-            "Each finding: "
-            '{"agent":"methods","section":"Methods|Results|...",'
-            '"location_quote":"<verbatim text>","severity":"BLOCKING|SHOULD_FIX|POLISH",'
-            '"issue":"<one sentence>","rationale":"<why reviewer 2 cares>",'
-            '"fix_type":"TEXT_REPLACE|INSERT|DELETE|COMMENT",'
-            '"old_text":"<verbatim if TEXT_REPLACE/DELETE>",'
-            '"new_text":"<replacement if TEXT_REPLACE/INSERT>",'
-            '"comment":"<for the margin>"}.\n\n'
-            "Manuscript:\n\n" + manuscript_excerpt + truncated_note
+            _stance + _venue_line +
+            "ROLE — METHODS AUDITOR. Find every methodological issue a "
+            "hostile reviewer would flag: stat assumptions, sample size, "
+            "blinding, multiple-testing correction, missing controls, model "
+            "misuse, R/Python reproducibility gaps, choice of metric, "
+            "appropriateness of test for data type. Be specific about which "
+            "passage you are flagging.\n\n" + _output_schema + _manuscript_block
         ),
         (
-            "You are the LOGIC CHECKER for a pre-submission review. Verify "
-            "every claim in the Discussion / Abstract traces verbatim to "
-            "evidence in Results. Flag any 'we show X' not actually shown. "
-            "Output ONLY a JSON array of findings (same schema as the methods "
-            "auditor). Manuscript:\n\n" + manuscript_excerpt + truncated_note
+            _stance + _venue_line +
+            "ROLE — LOGIC CHECKER. Verify every claim in the Abstract / "
+            "Discussion / conclusions traces verbatim to evidence in Results. "
+            "Flag any 'we show X' / 'our results demonstrate Y' that is not "
+            "actually shown. Flag claims that are STRONGER than the evidence "
+            "supports (e.g. causal language for correlational data, universal "
+            "language for narrow taxon sample). These are SHOULD_FIX or "
+            "BLOCKING — almost never POLISH.\n\n"
+            + _output_schema + _manuscript_block
         ),
         (
-            "You are the ADVERSARIAL READER (Reviewer 2 from hell) for a "
-            "pre-submission review. What would the most hostile competent "
-            "reviewer in this subfield attack? Cite the exact passage they "
-            "would attack. Output ONLY a JSON array of findings (same schema "
-            "as the methods auditor). Manuscript:\n\n" + manuscript_excerpt + truncated_note
+            _stance + _venue_line +
+            "ROLE — ADVERSARIAL READER (\"reviewer 2 from hell\"). What "
+            "would the most hostile competent reviewer in this subfield "
+            "attack? Cite the exact passage they would attack and the "
+            "strongest fatal-flaw reading of it, even if you think the "
+            "reading is uncharitable. Heath needs to see those attacks NOW "
+            "while he can still pre-empt them. Do NOT downgrade to POLISH "
+            "to be polite — the whole point of this role is hostility.\n\n"
+            + _output_schema + _manuscript_block
         ),
         (
-            "You are the CITATION VERIFIER for a pre-submission review. Check "
-            "every cited paper and direct quote in the manuscript. Flag "
-            "missing citations for empirical claims, suspicious-looking "
-            "references, broken citation formats. Output ONLY a JSON array "
-            "of findings (same schema as the methods auditor). Manuscript:\n\n"
-            + manuscript_excerpt + truncated_note
+            _stance + _venue_line +
+            "ROLE — CITATION VERIFIER. Two-part output (see schema below).\n\n"
+            "Part A: Manuscript-internal citation findings — flag missing "
+            "citations for empirical claims, suspicious in-text framing, "
+            "broken citation formats, claims that should cite Heath Blackmon's "
+            "prior work but don't, and ambiguous self-citation. A load-bearing "
+            "empirical claim with no citation is SHOULD_FIX, not POLISH. You "
+            "can do this from the manuscript text alone — no external lookup "
+            "needed.\n\n"
+            "Part B: References-to-verify — extract the bibliography (or as "
+            "much as fits in your context) into a structured list. The "
+            "orchestrator will fan out parallel Haiku calls to spot-check "
+            "each reference against OpenAlex. Prioritize: papers cited as "
+            "load-bearing evidence, papers from the last 5 years, papers "
+            "with unusual journal/year/author combinations. SKIP textbooks, "
+            "software documentation, and papers where the citation is just "
+            "for context rather than evidence. Cap the list at the 25 most "
+            "important references — quality over coverage.\n\n"
+            "OUTPUT — return ONLY a JSON object (no prose, no markdown fences) "
+            "with TWO top-level keys:\n"
+            '{"findings": [<finding>, ...], "references_to_verify": ['
+            '{"first_author":"<lastname>","year":<int>,"title":"<title>",'
+            '"doi":"<DOI if present, else empty>","journal":"<journal name>",'
+            '"context":"<one-sentence in-text claim that cites this>"}, ...]}\n\n'
+            "Each finding in `findings` uses the same schema as the other "
+            "specialists (see Methods Auditor above)." + _manuscript_block
         ),
         (
-            "You are the PRESENTATION AGENT for a pre-submission review. "
-            "Identify prose tightness issues, awkward sentences, paragraph "
-            "cohesion, figure clarity, and what's working well. Suggest "
-            "verbatim replacements for awkward sentences (these will become "
-            "tracked-changes-style markup if they pass voice-match). Output "
-            "ONLY a JSON array of findings (same schema as the methods "
-            "auditor). Manuscript:\n\n" + manuscript_excerpt + truncated_note
+            _stance + _venue_line +
+            "ROLE — PRESENTATION AGENT. SCOPE: cross-paragraph and structural "
+            "prose issues ONLY. A separate paragraph-level pass handles "
+            "sentence-level surgical edits in the author's voice — do NOT "
+            "duplicate that work. Your job is the level above: the things "
+            "that only show up when you read the whole manuscript end-to-end.\n\n"
+            "Look for: (1) topic-sentence-to-paragraph-payoff misalignment "
+            "(a paragraph's first sentence promises one thing, the rest "
+            "delivers another — flag with concrete fix); (2) terminology "
+            "drift across sections (the same concept referred to as "
+            "'X-linked' in Methods and 'sex-linked' in Discussion — pick one "
+            "and TEXT_REPLACE everywhere); (3) figure/table mismatches "
+            "(caption says one thing, panel labels say another); (4) "
+            "abstract↔discussion alignment (claims that appear in only "
+            "one); (5) section ordering or emphasis problems "
+            "(a result buried mid-Discussion that should lead it); "
+            "(6) overall narrative arc — does Intro motivate Results, "
+            "do Results support Discussion claims.\n\n"
+            "Do NOT flag: individual awkward sentences, wordy phrases, "
+            "passive voice, single-sentence prose tightening — the "
+            "polish pass owns that and will see voice exemplars. "
+            "Submitting sentence-level prose findings here is duplicate "
+            "work and will be discarded.\n\n"
+            "Most of YOUR findings should be COMMENT (cross-paragraph "
+            "and structural concerns are author-judgment work) or "
+            "TEXT_REPLACE for concrete terminology fixes. Expect 3-8 "
+            "findings total, not 30.\n\n"
+            + _output_schema + _manuscript_block
         ),
     ]
 
@@ -7082,38 +7316,315 @@ def run_pre_submission_review(
             model="claude-sonnet-4-6",
             max_steps=2,  # specialists don't need tool loops; just produce JSON
             max_workers=5,
+            # Critical: pass [] not None. None gives DEFAULT_ALLOWED_TOOLS (s2,
+            # pubmed, biorxiv, etc.); the Citation Verifier then tries to
+            # verify citations via API, hits rate limits, burns its 2 steps,
+            # and returns no JSON. Specialists must produce JSON directly from
+            # the manuscript text — no tool calls.
+            allowed_tools=[],
+            # JSON-array output for 5+ findings easily exceeds the default
+            # 2048-token cap, which truncates mid-string and breaks parsing.
+            max_tokens_per_turn=8192,
         )
     except Exception as exc:
         return f"FAILED at step 2 (specialist dispatch): {exc}"
 
     # ---- Step 3: collect + synthesize findings ----
+    # The Citation Verifier (index 3) returns a JSON OBJECT with two keys
+    # ({findings, references_to_verify}); other specialists return JSON arrays
+    # of findings. The reference list feeds the Haiku fan-out below.
+    CITATION_VERIFIER_IDX = 3
     all_findings: list[dict] = []
+    references_to_verify: list[dict] = []
     for i, raw in enumerate(specialist_outputs):
-        # Each subagent should return JSON; tolerate prose wrapping
         try:
             stripped = raw.strip()
             if stripped.startswith("```"):
                 stripped = "\n".join(
                     line for line in stripped.splitlines() if not line.startswith("```")
                 ).strip()
-            start = stripped.find("[")
-            end = stripped.rfind("]")
-            if start >= 0 and end > start:
-                parsed = _json.loads(stripped[start : end + 1])
-                if isinstance(parsed, list):
-                    all_findings.extend(parsed)
-        except Exception:
-            # If a subagent returned malformed output, skip but record
+            if i == CITATION_VERIFIER_IDX:
+                obj_start = stripped.find("{")
+                obj_end = stripped.rfind("}")
+                if obj_start < 0 or obj_end <= obj_start:
+                    raise ValueError(f"citation verifier returned no JSON object (raw start: {raw[:120]!r})")
+                parsed_obj = _json.loads(stripped[obj_start : obj_end + 1])
+                if not isinstance(parsed_obj, dict):
+                    raise ValueError(f"citation verifier JSON was not an object (got {type(parsed_obj).__name__})")
+                cv_findings = parsed_obj.get("findings") or []
+                cv_refs = parsed_obj.get("references_to_verify") or []
+                if isinstance(cv_findings, list):
+                    all_findings.extend(cv_findings)
+                if isinstance(cv_refs, list):
+                    references_to_verify = [r for r in cv_refs if isinstance(r, dict)]
+            else:
+                arr_start = stripped.find("[")
+                arr_end = stripped.rfind("]")
+                if arr_start < 0 or arr_end <= arr_start:
+                    raise ValueError(f"specialist returned no JSON array (raw start: {raw[:120]!r})")
+                parsed = _json.loads(stripped[arr_start : arr_end + 1])
+                if not isinstance(parsed, list):
+                    raise ValueError(f"specialist JSON was not a list (got {type(parsed).__name__})")
+                all_findings.extend(parsed)
+        except Exception as parse_exc:
             all_findings.append({
                 "agent": f"specialist_{i}",
                 "section": "?",
                 "location_quote": "(parse failure)",
                 "severity": "POLISH",
-                "issue": "Specialist returned non-JSON output; review manually",
+                "issue": f"Specialist returned non-JSON output ({parse_exc}); review manually",
                 "rationale": raw[:400],
                 "fix_type": "COMMENT",
                 "comment": f"Specialist output couldn't be parsed:\n{raw[:600]}",
             })
+
+    # ---- Step 3.5: per-reference Haiku fan-out (citation spot-check) ----
+    # Each reference gets one Haiku call with search_openalex access. Cheap
+    # (~$0.003 per ref) and parallel — 25 refs in ~10 seconds.
+    if references_to_verify:
+        verify_prompts: list[str] = []
+        for ref in references_to_verify[:25]:  # hard cap, defensive
+            first_author = str(ref.get("first_author") or "").strip()
+            year = ref.get("year") or ""
+            title = str(ref.get("title") or "").strip()
+            doi = str(ref.get("doi") or "").strip()
+            journal = str(ref.get("journal") or "").strip()
+            context = str(ref.get("context") or "").strip()
+            verify_prompts.append(
+                "You verify ONE citation against OpenAlex. Use the "
+                "search_openalex tool with a focused query (try DOI first if "
+                "present, else 'first_author year keywords from title'). Look "
+                "at the top 1-3 results and decide if the reference matches.\n\n"
+                f"Reference to verify:\n"
+                f"  - First author: {first_author}\n"
+                f"  - Year: {year}\n"
+                f"  - Title: {title}\n"
+                f"  - Journal: {journal}\n"
+                f"  - DOI: {doi or '(not provided)'}\n"
+                f"  - Cited in manuscript context: {context}\n\n"
+                "Status definitions:\n"
+                '  - "verified" — top OpenAlex result matches author + year + close title\n'
+                '  - "suspicious" — result found but author/year mismatch, or '
+                'title is very different from what the manuscript claims\n'
+                '  - "not_found" — no plausible match in OpenAlex\n\n'
+                "Output ONLY a JSON object (no prose, no markdown fences):\n"
+                '{"first_author":"<>","year":<int>,"title":"<>",'
+                '"context":"<one-sentence in-text claim>",'
+                '"status":"verified|suspicious|not_found",'
+                '"issue":"<one-sentence reason if not verified, else empty>"}'
+            )
+        try:
+            verify_outputs = run_parallel_subagents(
+                tasks=verify_prompts,
+                model="claude-haiku-4-5-20251001",
+                max_workers=10,
+                # Per-task: each Haiku gets exactly one tool and a small budget.
+                allowed_tools_per_task=[["search_openalex"]] * len(verify_prompts),
+                max_steps_per_task=[4] * len(verify_prompts),
+                max_tokens_per_turn=1024,
+                # Defaults below ignored when per-task overrides set.
+                allowed_tools=[],
+                max_steps=4,
+            )
+        except Exception as exc:
+            verify_outputs = [f"(verify dispatch failed: {exc})"] * len(verify_prompts)
+
+        for raw in verify_outputs:
+            try:
+                stripped = raw.strip()
+                if stripped.startswith("```"):
+                    stripped = "\n".join(
+                        line for line in stripped.splitlines() if not line.startswith("```")
+                    ).strip()
+                obj_start = stripped.find("{")
+                obj_end = stripped.rfind("}")
+                if obj_start < 0 or obj_end <= obj_start:
+                    continue  # skip silently — verifier failures don't block the pipeline
+                vparsed = _json.loads(stripped[obj_start : obj_end + 1])
+                if not isinstance(vparsed, dict):
+                    continue
+                status = (vparsed.get("status") or "").lower()
+                if status == "verified":
+                    continue  # only surface the problems
+                # Convert non-verified into a finding
+                ref_label = (
+                    f"{vparsed.get('first_author','?')} ({vparsed.get('year','?')}) "
+                    f"\"{(vparsed.get('title','') or '')[:80]}\""
+                )
+                issue_text = vparsed.get("issue") or f"Reference {status}"
+                all_findings.append({
+                    "agent": "citation_verifier_haiku",
+                    "section": "References",
+                    "location_quote": vparsed.get("context") or ref_label,
+                    "severity": "SHOULD_FIX" if status == "not_found" else "POLISH",
+                    "issue": f"Citation {status}: {ref_label} — {issue_text}",
+                    "rationale": (
+                        f"OpenAlex spot-check via Haiku returned status={status!r}. "
+                        f"Verify the reference manually before submission."
+                    ),
+                    "fix_type": "COMMENT",
+                    "comment": (
+                        f"[Citation {status}] {ref_label}\n\n{issue_text}\n\n"
+                        f"In-text context: {vparsed.get('context') or '(not provided)'}"
+                    ),
+                })
+            except Exception:
+                continue
+
+    # ---- Step 3.6: paragraph-level prose polish via Haiku + voice index ----
+    # Walks the source manuscript paragraph-by-paragraph. For each paragraph
+    # we retrieve 3 stylistic exemplars from voice_index (Heath's published
+    # corpus), then dispatch a Haiku call asking for sentence-level surgical
+    # edits in his voice. The Presentation Agent above is rescoped to
+    # cross-paragraph and structural prose work — sentence-level edits are
+    # OWNED by this pass. ~50 paragraphs × ~$0.005/Haiku ≈ $0.25 per review.
+    polish_findings_added = 0
+    polish_paragraphs_scanned = 0
+    polish_failures = 0
+    try:
+        from agent.voice_index import retrieve_exemplars as _retrieve_exemplars  # noqa: PLC0415
+    except Exception:
+        _retrieve_exemplars = None
+
+    if _retrieve_exemplars is not None:
+        # Split the full manuscript text (not the truncated excerpt) into
+        # paragraphs. Skip headings, references section, very short blocks,
+        # tables of contents.
+        raw_paragraphs = [p.strip() for p in text.split("\n\n")]
+        ref_markers = (
+            "References", "REFERENCES", "Literature Cited",
+            "LITERATURE CITED", "Bibliography", "BIBLIOGRAPHY",
+            "Works Cited",
+        )
+        cleaned_paragraphs: list[str] = []
+        in_refs_section = False
+        for p in raw_paragraphs:
+            if any(p.startswith(m) for m in ref_markers):
+                in_refs_section = True
+            if in_refs_section:
+                continue
+            if len(p) < 120:
+                continue  # skip headings, captions, very short blocks
+            if p.startswith("#"):
+                continue  # markdown headings
+            if p.count("\t") > 3:
+                continue  # likely a table row
+            # Skip paragraphs that are mostly citations (heuristic: >30%
+            # parenthetical references suggests bibliography fragment)
+            if p.count("(") + p.count(")") > len(p) // 30:
+                pass  # not a strict skip — citations are normal in body text
+            cleaned_paragraphs.append(p)
+
+        # Cap so a long paper doesn't blow cost. The cap is generous —
+        # Haiku is cheap and parallel.
+        polish_paragraphs = cleaned_paragraphs[:60]
+        polish_paragraphs_scanned = len(polish_paragraphs)
+
+        if polish_paragraphs:
+            # Already-touched anchors (from main specialists) — skip in
+            # polish to avoid double-marking. Set lookup is O(1).
+            already_touched = {
+                f.get("old_text", "").strip()
+                for f in all_findings
+                if (f.get("fix_type") or "").upper() == "TEXT_REPLACE"
+                and f.get("old_text")
+            }
+
+            polish_prompts: list[str] = []
+            for paragraph in polish_paragraphs:
+                try:
+                    exemplars = _retrieve_exemplars(paragraph, k=3) or []
+                except Exception:
+                    exemplars = []
+                # The exemplar dicts have a 'passage' field per voice_index.
+                ex_blocks = []
+                for e in exemplars[:3]:
+                    passage = (e.get("passage") or "").strip()
+                    title = e.get("title") or "(untitled)"
+                    if passage:
+                        ex_blocks.append(f"From '{title[:80]}':\n{passage[:600]}")
+                ex_text = (
+                    "\n\n---\n\n".join(ex_blocks)
+                    if ex_blocks
+                    else "(no voice exemplars available — match natural academic prose)"
+                )
+                polish_prompts.append(
+                    "ROLE: prose polisher for Heath Blackmon's manuscript. "
+                    "Rewrite individual sentences in HIS voice (see exemplars). "
+                    "Be SURGICAL — propose 0 to 3 sentence-level edits that "
+                    "tighten or clarify the paragraph below WITHOUT changing "
+                    "the science. Do NOT propose paragraph-level rewrites — "
+                    "one sentence at a time, verbatim old_text matches the "
+                    "manuscript exactly.\n\n"
+                    "Voice exemplars from Heath's published prose:\n\n"
+                    + ex_text +
+                    "\n\n=====\n\nParagraph to polish:\n\n"
+                    + paragraph +
+                    "\n\n=====\n\nOutput ONLY a JSON array (no prose, no "
+                    "markdown fences). Each item:\n"
+                    '{"old_text":"<verbatim sentence from the paragraph above>",'
+                    '"new_text":"<your replacement, in Heath\'s voice, '
+                    'reading naturally as continuation of the surrounding '
+                    'prose>","why":"<one short phrase, optional>"}\n\n'
+                    "Return [] if the paragraph is already tight. Return [] "
+                    "if you would just be making stylistic preference changes "
+                    "rather than concrete improvements."
+                )
+
+            try:
+                polish_outputs = run_parallel_subagents(
+                    tasks=polish_prompts,
+                    model="claude-haiku-4-5-20251001",
+                    max_workers=10,
+                    allowed_tools=[],
+                    max_steps=1,
+                    max_tokens_per_turn=1024,
+                )
+            except Exception as exc:
+                polish_outputs = []
+                polish_failures = len(polish_prompts)
+
+            for raw in polish_outputs:
+                try:
+                    stripped = raw.strip()
+                    if stripped.startswith("```"):
+                        stripped = "\n".join(
+                            line for line in stripped.splitlines()
+                            if not line.startswith("```")
+                        ).strip()
+                    arr_start = stripped.find("[")
+                    arr_end = stripped.rfind("]")
+                    if arr_start < 0 or arr_end <= arr_start:
+                        continue
+                    parsed = _json.loads(stripped[arr_start : arr_end + 1])
+                    if not isinstance(parsed, list):
+                        continue
+                    for item in parsed:
+                        if not isinstance(item, dict):
+                            continue
+                        old = (item.get("old_text") or "").strip()
+                        new = (item.get("new_text") or "").strip()
+                        if not old or not new or old == new:
+                            continue
+                        if old in already_touched:
+                            continue  # main pass already addressing this
+                        already_touched.add(old)
+                        all_findings.append({
+                            "agent": "polish_haiku",
+                            "section": "Prose",
+                            "location_quote": old,
+                            "severity": "POLISH",
+                            "issue": item.get("why") or "Prose tightening (voice-matched)",
+                            "rationale": "Sentence-level rewrite in author voice via Haiku polish pass.",
+                            "fix_type": "TEXT_REPLACE",
+                            "old_text": old,
+                            "new_text": new,
+                            "comment": "",
+                        })
+                        polish_findings_added += 1
+                except Exception:
+                    polish_failures += 1
+                    continue
 
     if not all_findings:
         return (
@@ -7185,34 +7696,117 @@ def run_pre_submission_review(
             except Exception as exc:
                 markup_result = f"mark_changes_in_google_doc failed: {exc}"
 
+        # Failed-anchor fallback: parse the failed indices out of markup_result
+        # and convert each into a margin comment carrying OLD: / NEW: text. The
+        # alternative — silent drop — was the dominant cause of "no edits no
+        # comments" outputs because prose anchors fail constantly (whitespace,
+        # smart quotes, soft line breaks). Whitespace-collapsed match in
+        # _gdoc_find_text_range catches most, but anything still failing here
+        # gets surfaced as a comment so the suggestion isn't lost.
+        markup_fallback_comments: list[dict] = []
+        if markup_result:
+            failed_idx_re = _re.compile(r"^\s*\[(\d+)\]\s+(.*)$", _re.MULTILINE)
+            for m in failed_idx_re.finditer(markup_result):
+                fi = int(m.group(1))
+                if fi < 0 or fi >= len(markup_changes):
+                    continue
+                orig = markup_changes[fi]
+                ctype = orig.get("type", "replace")
+                if ctype == "replace":
+                    fb_anchor = orig.get("old", "")[:400]
+                    fb_body = (
+                        "Suggested edit (anchor not found verbatim — apply manually):\n\n"
+                        f"OLD: {orig.get('old','')}\n\n"
+                        f"NEW: {orig.get('new','')}"
+                    )
+                elif ctype == "insert":
+                    fb_anchor = orig.get("after", "")[:400]
+                    fb_body = (
+                        "Suggested insertion (anchor not found — apply manually):\n\n"
+                        f"AFTER: {orig.get('after','')}\n\n"
+                        f"INSERT: {orig.get('new','')}"
+                    )
+                elif ctype == "delete":
+                    fb_anchor = orig.get("old", "")[:400]
+                    fb_body = (
+                        "Suggested deletion (anchor not found — apply manually):\n\n"
+                        f"DELETE: {orig.get('old','')}"
+                    )
+                else:
+                    continue
+                markup_fallback_comments.append({
+                    "anchor": fb_anchor,
+                    "body": fb_body,
+                })
+
         comments_added = 0
         comments_failed = 0
+        comment_failure_samples: list[str] = []
         for f in comment_findings:
-            sev = (f.get("severity") or "POLISH").upper()
-            sev_prefix = {"BLOCKING": "**[BLOCKING]**",
-                          "SHOULD_FIX": "[Should fix]",
-                          "POLISH": "[Polish]"}.get(sev, "[Polish]")
-            body = f"{sev_prefix}: {f.get('comment') or f.get('issue', '')}"
-            if f.get("rationale"):
-                body += f"\n\nRationale: {f['rationale']}"
+            # Heath's actual reviews don't tag every comment with a severity
+            # label — they read as natural prose. Severity stays in the JSON
+            # for the summary; the doc-side comment body is just the comment.
+            body = f.get("comment") or f.get("issue", "")
+            if f.get("rationale") and (f.get("severity") or "").upper() != "POLISH":
+                # Only attach rationale for substantive findings — polish notes
+                # don't need a "why a reviewer cares" explainer.
+                body += f"\n\n{f['rationale']}"
             anchor = f.get("location_quote", "")
             if not anchor:
-                continue
+                # Anchor-less comment is still a comment — don't drop the finding.
+                anchor = ""
             try:
-                insert_comment_in_google_doc.invoke({
+                result = insert_comment_in_google_doc.invoke({
                     "doc_id": review_doc_id,
                     "anchor_text": anchor[:400],
                     "comment": body,
                 })
-                comments_added += 1
-            except Exception:
+                # The tool returns "OK: ..." on success, "Error: ..." otherwise.
+                # Don't treat "no exception" as success — the old stub returned a
+                # plain string and silently dropped every comment.
+                if isinstance(result, str) and result.startswith("OK:"):
+                    comments_added += 1
+                else:
+                    comments_failed += 1
+                    if len(comment_failure_samples) < 3:
+                        comment_failure_samples.append(str(result)[:160])
+            except Exception as exc:
                 comments_failed += 1
+                if len(comment_failure_samples) < 3:
+                    comment_failure_samples.append(f"{type(exc).__name__}: {exc}")
+
+        # Now insert the markup-fallback comments (one per failed TEXT_REPLACE/
+        # INSERT/DELETE anchor). These carry OLD:/NEW: bodies the author can
+        # apply manually.
+        markup_fallback_added = 0
+        markup_fallback_failed = 0
+        for fc in markup_fallback_comments:
+            try:
+                result = insert_comment_in_google_doc.invoke({
+                    "doc_id": review_doc_id,
+                    "anchor_text": fc["anchor"],
+                    "comment": fc["body"],
+                })
+                if isinstance(result, str) and result.startswith("OK:"):
+                    markup_fallback_added += 1
+                else:
+                    markup_fallback_failed += 1
+            except Exception:
+                markup_fallback_failed += 1
 
         markup_summary = (
             f"{markup_result}\n"
             f"Added {comments_added} margin comments "
             f"({comments_failed} failed to anchor)"
         )
+        if markup_fallback_comments:
+            markup_summary += (
+                f"\nFailed-anchor fallback: {markup_fallback_added} of "
+                f"{len(markup_fallback_comments)} converted to comments "
+                f"({markup_fallback_failed} failed)"
+            )
+        if comment_failure_samples:
+            markup_summary += "\nSample failures:\n  " + "\n  ".join(comment_failure_samples)
 
     # ---- Step 6: write sidecar summary ----
     by_sev = {"BLOCKING": 0, "SHOULD_FIX": 0, "POLISH": 0}
@@ -7252,73 +7846,53 @@ def run_pre_submission_review(
 
     summary_md = "\n".join(summary_lines)
 
+    # Sidecar: only when we resolved through a local path (manuscript_path).
+    # If the user came in via doc_url, there's no natural directory to drop
+    # the file into — the summary content still lands in the return string.
     summary_path = ""
-    try:
-        manuscript_dir = os.path.dirname(os.path.abspath(manuscript_path))
-        summary_path = os.path.join(manuscript_dir, f"{manuscript_stem}_pre-submission-summary.md")
-        with open(summary_path, "w", encoding="utf-8") as fh:
-            fh.write(summary_md)
-    except Exception:
-        pass
+    if manuscript_path:
+        try:
+            manuscript_dir = os.path.dirname(os.path.abspath(manuscript_path))
+            summary_path = os.path.join(manuscript_dir, f"{manuscript_stem}_pre-submission-summary.md")
+            with open(summary_path, "w", encoding="utf-8") as fh:
+                fh.write(summary_md)
+        except Exception:
+            pass
 
     # ---- Step 7: assemble return ----
+    # Per-fix-type breakdown so the user can see at a glance how findings
+    # were classified — useful when the rubric is mis-tuned and everything
+    # ends up as TEXT_REPLACE (no comments) or COMMENT (no inline markup).
+    by_ft = {"TEXT_REPLACE": 0, "INSERT": 0, "DELETE": 0, "COMMENT": 0, "OTHER": 0}
+    for f in all_findings:
+        ft = (f.get("fix_type") or "COMMENT").upper()
+        if ft in by_ft:
+            by_ft[ft] += 1
+        else:
+            by_ft["OTHER"] += 1
     out = [
         f"## Pre-submission review complete — {manuscript_stem}",
         "",
-        f"**Findings:** {by_sev['BLOCKING']} BLOCKING, "
-        f"{by_sev['SHOULD_FIX']} SHOULD_FIX, {by_sev['POLISH']} POLISH",
+        f"**Severity:** {by_sev['BLOCKING']} BLOCKING · "
+        f"{by_sev['SHOULD_FIX']} SHOULD_FIX · {by_sev['POLISH']} POLISH",
+        f"**Fix type:** {by_ft['TEXT_REPLACE']} TEXT_REPLACE · "
+        f"{by_ft['INSERT']} INSERT · {by_ft['DELETE']} DELETE · "
+        f"{by_ft['COMMENT']} COMMENT"
+        + (f" · {by_ft['OTHER']} OTHER" if by_ft['OTHER'] else ""),
+        f"**Polish pass:** scanned {polish_paragraphs_scanned} paragraphs, "
+        f"added {polish_findings_added} voice-matched edits"
+        + (f" ({polish_failures} polish parse failures)" if polish_failures else ""),
         "",
         f"**Review copy:** {review_url or '(no copy — input was not .gdoc)'}",
         f"**Summary file:** {summary_path or '(not written)'}",
         "",
-        "**Markup result:**",
+        "**Markup + comments result:**",
         markup_summary,
         "",
-        "Open the review copy in Google Docs — markup is in red; "
-        "comments are in the margin.",
+        "Open the review copy in Google Docs — markup is red strikethrough+insertion "
+        "in the body; comments are in the right margin.",
     ]
     return "\n".join(out)
-
-
-@tool
-def pre_submission_review(doc_text: str, venue: str = "journal_generic") -> str:
-    """Quick single-shot pre-submission review. 3 reviewer personas (methodologist,
-    domain_expert, skeptic) on draft text. Returns per-persona scores + concerns +
-    blocking issues, plus a consensus summary as markdown.
-
-    Use this tool ONLY for "quick gut check" requests — the full multi-agent
-    treatment lives in `agent/skills/pre-submission-review/SKILL.md` and produces
-    a tracked-changes docx with margin comments. If Heath gave you a manuscript
-    file (.docx/.pdf) and a target venue, prefer the skill — `read_local_file`
-    that SKILL.md and follow it. Use this tool only when Heath pastes raw text
-    inline and asks for a fast critique without going through the docx workflow.
-
-    venue options: 'journal_generic', 'nature_tier', 'MIRA_study_section',
-    'NSF_DEB', 'google_org_grant'."""
-    try:
-        from agent.submission_review import pre_submission_review as _review  # noqa: PLC0415
-        r = _review(doc_text=doc_text, venue=venue)
-        out = [f"# Pre-submission review — venue: **{r.get('venue','?')}**"]
-        for rev in r.get('reviews', []):
-            out.append(f"\n## {rev.get('persona','?')} — score **{rev.get('score','?')}/5**")
-            if rev.get('blocking_issues'):
-                out.append("**Blocking issues:**")
-                for b in rev['blocking_issues']:
-                    out.append(f"- {b}")
-            if rev.get('concerns'):
-                out.append("**Concerns:**")
-                for c in rev['concerns']:
-                    out.append(f"- {c}")
-            if rev.get('suggested_revisions'):
-                out.append("**Suggested revisions:**")
-                for s in rev['suggested_revisions']:
-                    out.append(f"- {s}")
-            if rev.get('notes'):
-                out.append(f"_{rev['notes']}_")
-        out.append(f"\n## Consensus\n{r.get('consensus','')}")
-        return "\n".join(out)
-    except Exception as e:
-        return f"Error running pre-submission review: {e}"
 
 
 @tool
@@ -8330,7 +8904,7 @@ def get_all_tools():
         mark_changes_in_google_doc,
         insert_comment_in_google_doc,
         find_project_manuscript,
-        run_pre_submission_review,
+        pre_submission_review,
         # Task 6 — Calendar write access
         create_calendar_event,
         update_calendar_event,
@@ -8442,11 +9016,10 @@ def get_all_tools():
         export_state_to_sheet,
         get_activity_report,
         list_analysis_bundles,
-        # v5: Python execution, data discovery, reviewer emulator, war room
+        # v5: Python execution, data discovery, war room
         run_python_script,
         inspect_project_data,
         propose_data_dir,
-        pre_submission_review,
         enter_war_room,
         # v6: External Science APIs
         fetch_paper_full_text,

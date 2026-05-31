@@ -236,8 +236,9 @@ output is expensive and deterministic; cache it.
 ## Distinguishing from related skills
 
 - `pre_submission_review` (a tool, not a skill) — for **Heath's OWN drafts**
-  before submission. Different rubric (positive framing, find-and-fix). Do
-  not confuse.
+  before submission. Marks up a Google Doc copy with red strikethrough +
+  inserted text + margin comments. Different rubric (positive framing,
+  find-and-fix). Do not confuse.
 - `manuscript-polisher` (Anthropic skill) — for editing prose Heath wrote.
   Not a peer review.
 - `voice-matching` (TEALC skill) — produces extended prose in Heath's voice.

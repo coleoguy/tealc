@@ -1,0 +1,36 @@
+#!/bin/bash
+# Tealc launcher — starts the background scheduler (nohup, survives terminal close)
+# then opens Chainlit in a Terminal window for the chat UI.
+# Closing the Terminal only kills the chat UI — the scheduler keeps running.
+
+LAB_DIR="/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive/00-Lab-Agent"
+URL="http://localhost:8000"
+
+# 1. Start background scheduler (idempotent — checks PID file first)
+bash "$LAB_DIR/scripts/start_scheduler.sh" >>"$LAB_DIR/data/scheduler.stdout.log" 2>&1
+
+# 2. If Chainlit already serving, tell Heath and just open browser
+if curl -sf --max-time 2 "$URL" >/dev/null 2>&1; then
+    osascript -e 'display notification "Already running — opening the chat tab. Click Stop Tealc first if you want a clean restart." with title "Tealc"'
+    open "$URL"
+    exit 0
+fi
+
+# 3. Launch Chainlit in a new Terminal window
+osascript -e 'display notification "Booting chat in a Terminal window…" with title "Tealc"'
+osascript <<EOF
+tell application "Terminal"
+    activate
+    do script "cd '$LAB_DIR' && ./run.sh"
+end tell
+EOF
+
+# 4. Wait up to 30s for Chainlit to bind, then open browser
+for i in {1..30}; do
+    sleep 1
+    if curl -sf --max-time 1 "$URL" >/dev/null 2>&1; then
+        break
+    fi
+done
+open "$URL"
+osascript -e 'display notification "Chat is live at localhost:8000" with title "Tealc"'

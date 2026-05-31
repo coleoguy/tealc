@@ -1,0 +1,33 @@
+#!/bin/bash
+# Stop Tealc chat UI. The launchd scheduler keeps running and will respawn.
+# To fully stop the scheduler: launchctl bootout gui/$(id -u)/com.blackmon.tealc-scheduler
+
+LAB_DIR="/Users/blackmon/Library/CloudStorage/GoogleDrive-coleoguy@gmail.com/My Drive/00-Lab-Agent"
+
+# Kill anything on port 8000 (Chainlit)
+CHAT_KILLED="no"
+PIDS=$(lsof -ti:8000 2>/dev/null)
+if [ -n "$PIDS" ]; then
+    kill $PIDS 2>/dev/null
+    sleep 1
+    REMAINING=$(lsof -ti:8000 2>/dev/null)
+    [ -n "$REMAINING" ] && kill -9 $REMAINING 2>/dev/null
+    CHAT_KILLED="yes"
+fi
+
+# Check launchd scheduler status
+LAUNCHD_RUNNING="no"
+if launchctl print "gui/$(id -u)/com.blackmon.tealc-scheduler" >/dev/null 2>&1; then
+    LAUNCHD_RUNNING="yes"
+fi
+
+if [ "$CHAT_KILLED" = "yes" ]; then
+    MSG="Chat stopped"
+else
+    MSG="Chat was not running"
+fi
+if [ "$LAUNCHD_RUNNING" = "yes" ]; then
+    MSG="$MSG · Scheduler still running via launchd (auto-restarts at login)"
+fi
+
+osascript -e "display notification \"$MSG\" with title \"Tealc\""

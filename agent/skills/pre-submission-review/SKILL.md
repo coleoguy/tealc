@@ -30,51 +30,63 @@ description: >
   ELSE's paper that came in via a journal — materials typically in
   `~/reviews/<journal>/`, NOT in `Projects/`). **Default rule when
   ambiguous: if the source file lives in any subdirectory of Heath's
-  `Projects/` folder, use this skill, not paper-reviewer.** Distinct
-  from the legacy `pre_submission_review` tool (single-shot, returns
-  markdown — kept only for "quick gut check" requests on inline-pasted
-  text without a file path).
+  `Projects/` folder, use this skill, not paper-reviewer.**
 ---
 
 # Pre-Submission Review (TEALC)
 
 ## ⚠ FIRST READ — call ONE TOOL, do not assemble the workflow yourself
 
-**Use the tool `run_pre_submission_review(project, venue)`** for ANY
-pre-submission review request. That single tool deterministically runs
-the entire 5-specialist + synthesizer + copy + markup + comments
-pipeline in Python — guaranteed to produce a marked-up Google Doc copy,
-guaranteed never to fall through to a journal-style prose review.
+**Use the tool `pre_submission_review(...)`** for ANY pre-submission review
+request. That single tool deterministically runs the entire 5-specialist +
+synthesizer + copy + markup + comments pipeline in Python — guaranteed to
+produce a marked-up Google Doc copy, guaranteed never to fall through to a
+journal-style prose review.
 
-The `project` parameter accepts:
-  - A project ID like `p_002`
-  - A project name like `"Achiasmy Synthesis"`
-  - A name fragment like `"achiasmy"`
+Pass exactly ONE of these source inputs, in order of preference:
 
-The orchestrator calls `find_project_manuscript(project)` internally
-to locate the current manuscript at `<project>/manuscript/*Manuscript*.gdoc`
-— no Drive search loop needed, no asking Heath for paths. Heath's
-projects follow a strict convention (current manuscript lives in the
-`manuscript/` subdirectory; `deprecated/` and `_dev/` are excluded;
-the most-recently-edited file wins), and the finder respects it.
+1. **`doc_url=<URL or doc_id>`** — fastest. If Heath pasted a `docs.google.com`
+   link, OR you already have the doc_id from a prior tool call, use this.
+   The tool extracts the ID, reads the doc directly via the Drive API, and
+   skips ALL Drive lookups. NO project lookup, NO `find_project_manuscript`,
+   NO `find_resource`, NO `list_research_projects`. Just one call.
+
+2. **`project=<name or fragment>`** — when Heath names a project but didn't
+   share a link. The orchestrator calls `find_project_manuscript(project)`
+   internally to locate the current manuscript at
+   `<project>/manuscript/*Manuscript*.gdoc`.
+
+3. **`manuscript_path=<absolute path>`** — fallback when the project finder
+   picks the wrong file or the manuscript lives outside the standard layout.
 
 ```
-# Most natural call — all that's usually needed:
-run_pre_submission_review(project="Achiasmy Synthesis", venue="Am_Nat")
+# Best — Heath just shared a Google Doc link:
+pre_submission_review(
+    doc_url="https://docs.google.com/document/d/1AOrf6A.../edit",
+    venue="MBE",
+)
 
-# If for some reason the project finder picks the wrong file, fall
-# back to passing an explicit path:
-run_pre_submission_review(
+# Same thing with just the bare ID (also accepted):
+pre_submission_review(doc_url="1AOrf6A1U34xQ7-xEifKR1rnJ_wxG36rg7waQV2fWZPQ", venue="MBE")
+
+# When Heath names a project without sharing a link:
+pre_submission_review(project="Achiasmy Synthesis", venue="Am_Nat")
+
+# Explicit path fallback:
+pre_submission_review(
     manuscript_path="/Users/.../Projects/<dir>/manuscript/<file>.gdoc",
     venue="Am_Nat",
 )
 ```
 
-If the user mentions a project by name without a path, **DO NOT**
-search Drive — call `find_project_manuscript(project)` first to
-preview which file will be used, OR just call
-`run_pre_submission_review(project=...)` and let the orchestrator
-locate the manuscript.
+**If you have a doc_id or doc URL, you do NOT need to look up the project
+first.** Going through `find_resource` → `list_research_projects` →
+`find_project_manuscript` when you already have the doc_id is wasted work
+(observed in production — five tool calls where one would do).
+
+If the user mentions a project by name without a link or path, **DO NOT**
+search Drive yourself — call `pre_submission_review(project=...)` and let
+the orchestrator locate the manuscript.
 
 Do NOT try to assemble this workflow yourself by calling
 `spawn_subagent` + `copy_google_doc` + `mark_changes_in_google_doc`
@@ -140,7 +152,7 @@ Three input formats supported, in preference order:
 3. **`.md` or `.tex` of the manuscript** (rare — convert to docx as Phase 0)
 
 **Target venue is required.** If user didn't specify, ask. Known venue
-rubrics (mirrored from the legacy `pre_submission_review` tool):
+rubrics:
 
 - `journal_generic`
 - `nature_tier` (Nature, Science, Cell — short, broad, structured abstract)
@@ -604,10 +616,6 @@ deterministic; cache it.
 - `paper-reviewer` (skill) — for **someone else's** paper Heath is
   reviewing for a journal. Different stance, different output (markdown
   review for the editor / authors).
-- `pre_submission_review` (legacy tool) — single-shot, returns markdown
-  with 3 personas. Still available for "quick gut check" without the
-  full multi-agent dispatch. This skill SUPERSEDES it for substantive
-  pre-submission reviews; the tool stays for the lightweight case.
 - `manuscript-polisher` (Anthropic skill) — for prose editing. This
   skill USES voice-matching for prose-level changes but is a
   full-manuscript review, not just polishing.

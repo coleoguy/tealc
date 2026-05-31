@@ -18,7 +18,7 @@ T+7 sweep:
   - Runs R via run_r_script (same path as weekly_comparative_analysis).
   - DETERMINISTIC adjudication: parses p-value + direction, no LLM judge for verdict.
   - Opus 4.7 writes a prose rationale AROUND the deterministic verdict.
-  - Pipes through critic_pass("analysis") + pre_submission_review("journal_generic").
+  - Pipes through critic_pass("analysis") + replication_verdict_review("journal_generic").
   - Persists + publishes verdict.
 
 Run manually:
@@ -49,7 +49,7 @@ from agent.scheduler import DB_PATH  # noqa: E402
 from agent.ledger import record_output, update_critic  # noqa: E402
 from agent.cost_tracking import record_call  # noqa: E402
 from agent.critic import critic_pass  # noqa: E402
-from agent.submission_review import pre_submission_review  # noqa: E402
+from agent.submission_review import replication_verdict_review  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -863,9 +863,9 @@ def _adjudicate_one(client: Anthropic, row: dict) -> dict:
     )
     review_result: dict = {}
     try:
-        review_result = pre_submission_review(full_verdict_doc, venue="journal_generic")
+        review_result = replication_verdict_review(full_verdict_doc, venue="journal_generic")
     except Exception as e:
-        print(f"[{_JOB_NAME}] pre_submission_review error: {e}")
+        print(f"[{_JOB_NAME}] replication_verdict_review error: {e}")
 
     # 9. Persist adjudication
     _persist_adjudication(hypothesis_id, verdict, rationale_md, run_id)

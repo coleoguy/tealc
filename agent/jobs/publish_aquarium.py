@@ -49,6 +49,42 @@ _SKIP_JOBS = {
     "executive",         # was "Reviewed priorities"
 }
 
+# Priority tiers for ranking jobs that finished within the eligible window.
+# Higher tier wins when multiple jobs are eligible. Without this, the picker
+# defaults to MAX(finished_at) which biases toward whichever admin job
+# happened to finish a millisecond later than the science work.
+_JOB_PRIORITY: dict[str, int] = {
+    # Tier 3 — substantive science output the public should see first
+    "weekly_hypothesis_generator":   3,
+    "weekly_comparative_analysis":   3,
+    "nightly_grant_drafter":         3,
+    "nightly_literature_synthesis":  3,
+    "cross_project_synthesis":       3,
+    "exploratory_analysis":          3,
+    "paper_of_the_day":              3,
+    "midday_lit_pulse":              3,
+    "prereg_replication_loop":       3,
+    "prereg_monday":                 3,
+    "prereg_t7_sweep":               3,
+    # Tier 2 — research-adjacent activity that's still interesting
+    "paper_radar":                   2,
+    "citation_watch":                2,
+    "track_nas_metrics":             2,
+    "nas_impact_score":              2,
+    "nas_pipeline_health":           2,
+    "nas_case_packet":               2,
+    "database_pulse":                2,
+    "weekly_database_health":        2,
+    "retrieval_quality_monitor":     2,
+    "replication_docs":              2,
+    "populate_project_keywords":     2,
+    "grant_radar":                   2,
+    "rebuild_voice_index":           2,
+    # Tier 1 — admin/housekeeping. Shows up only when nothing else ran.
+    # (Anything not listed here defaults to tier 1.)
+}
+_DEFAULT_PRIORITY = 1
+
 # Privacy-safe (type, description) labels per noteworthy job.
 # Never expose project names, grant titles, student names, email addresses,
 # deadline labels, or any specific strings from output_summary.
@@ -188,14 +224,30 @@ def job() -> str:
             conn = sqlite3.connect(DB_PATH)
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA busy_timeout=5000")
-            row = conn.execute(
+            # Lookback is 30 min (not 10) so jobs that finished just before the
+            # 10-min staleness threshold tripped don't age out unpublished.
+            # Many science jobs run on tight schedules (00:00, 01:00, 06:00)
+            # and would otherwise be missed by the every-2-min publisher tick.
+            rows = conn.execute(
                 "SELECT job_name, finished_at FROM job_runs "
                 "WHERE status='success' AND finished_at > ? "
                 "  AND job_name NOT IN (" + ",".join("?" * len(_SKIP_JOBS)) + ") "
-                "ORDER BY finished_at DESC LIMIT 1",
-                ((now - timedelta(minutes=10)).isoformat(), *_SKIP_JOBS),
-            ).fetchone()
+                "ORDER BY finished_at DESC LIMIT 20",
+                ((now - timedelta(minutes=30)).isoformat(), *_SKIP_JOBS),
+            ).fetchall()
             conn.close()
+            # Priority-aware pick: highest tier wins, ties broken by recency.
+            # Without this, MAX(finished_at) biases toward whichever admin job
+            # happened to finish a millisecond later than the science work.
+            row = None
+            if rows:
+                row = max(
+                    rows,
+                    key=lambda r: (
+                        _JOB_PRIORITY.get(r[0], _DEFAULT_PRIORITY),
+                        r[1],  # finished_at as string compares lexicographically (ISO 8601)
+                    ),
+                )
             if row:
                 job_name, _finished = row
                 label = _JOB_LABELS.get(job_name)

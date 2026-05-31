@@ -263,14 +263,19 @@ def run_subagent(
     error_msg: str | None = None
 
     for step in range(max_steps):
+        # Build kwargs and conditionally include `tools` only when non-empty.
+        # Passing `tools=None` triggers Anthropic API 400 ("tools: Input should
+        # be a valid array"); the parameter must be omitted entirely when empty.
+        create_kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens_per_turn,
+            "system": system,
+            "messages": messages,
+        }
+        if tool_specs:
+            create_kwargs["tools"] = tool_specs
         try:
-            resp = client.messages.create(
-                model=model,
-                max_tokens=max_tokens_per_turn,
-                system=system,
-                tools=tool_specs if tool_specs else None,
-                messages=messages,
-            )
+            resp = client.messages.create(**create_kwargs)
         except Exception as exc:
             log.warning("Subagent API call failed at step %d: %s", step, exc)
             error_msg = str(exc)
@@ -357,24 +362,46 @@ def run_parallel_subagents(
     max_steps: int = 8,
     max_workers: int = 4,
     allowed_tools: list[str] | None = None,
+    max_tokens_per_turn: int = 2048,
+    allowed_tools_per_task: list[list[str] | None] | None = None,
+    max_steps_per_task: list[int] | None = None,
+    model_per_task: list[str] | None = None,
 ) -> list[str]:
     """Run N subagents in parallel via threads. Returns a list of final
     answers in the same order as the input tasks.
 
     `max_workers` caps concurrency to avoid hammering the Anthropic API.
+
+    Per-task overrides (all optional, must match `len(tasks)` if provided):
+      - `allowed_tools_per_task[i]` overrides `allowed_tools` for task i.
+        Use `None` for that slot to fall back to the default `allowed_tools`.
+      - `max_steps_per_task[i]` overrides `max_steps` for task i.
+      - `model_per_task[i]` overrides `model` for task i (e.g. mix Haiku
+        and Sonnet within one batch).
     """
     if not tasks:
         return []
+    if allowed_tools_per_task is not None and len(allowed_tools_per_task) != len(tasks):
+        raise ValueError("allowed_tools_per_task must match len(tasks)")
+    if max_steps_per_task is not None and len(max_steps_per_task) != len(tasks):
+        raise ValueError("max_steps_per_task must match len(tasks)")
+    if model_per_task is not None and len(model_per_task) != len(tasks):
+        raise ValueError("model_per_task must match len(tasks)")
     n_workers = min(max(1, max_workers), len(tasks))
     results: list[str] = ["(pending)"] * len(tasks)
     with _futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
-        future_to_idx = {
-            pool.submit(
+        future_to_idx = {}
+        for i, task in enumerate(tasks):
+            task_tools = allowed_tools
+            if allowed_tools_per_task is not None and allowed_tools_per_task[i] is not None:
+                task_tools = allowed_tools_per_task[i]
+            task_steps = max_steps_per_task[i] if max_steps_per_task else max_steps
+            task_model = model_per_task[i] if model_per_task else model
+            future_to_idx[pool.submit(
                 run_subagent, task,
-                model=model, max_steps=max_steps, allowed_tools=allowed_tools,
-            ): i
-            for i, task in enumerate(tasks)
-        }
+                model=task_model, max_steps=task_steps, allowed_tools=task_tools,
+                max_tokens_per_turn=max_tokens_per_turn,
+            )] = i
         for fut in _futures.as_completed(future_to_idx):
             i = future_to_idx[fut]
             try:

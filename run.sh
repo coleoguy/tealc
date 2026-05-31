@@ -36,4 +36,20 @@ mkdir -p "$(dirname "$CHAINLIT_LOG")"
 echo "Chainlit logs → $CHAINLIT_LOG"
 echo "  tail -f \"$CHAINLIT_LOG\"   from another shell to follow"
 echo ""
+
+# This repo lives on Google Drive (CloudStorage), which serves files over the
+# network — a cold-cache read can fail with ETIMEDOUT (Errno 60).  Chainlit (and
+# app.py) read .env at *import* time with no retry, so one timeout crashes the
+# server before it binds to :8000, leaving the browser tab dead.  Pre-warm the
+# Drive-backed files we're about to import so those reads hit the local cache,
+# retrying if Drive is slow to wake up.
+echo "Warming Google Drive cache…"
+for i in 1 2 3 4 5; do
+    if cat .env app.py >/dev/null 2>&1 && find agent -name '*.py' -exec cat {} + >/dev/null 2>&1; then
+        break
+    fi
+    echo "  Google Drive not ready (attempt $i/5); retrying in 2s…"
+    sleep 2
+done
+
 PYTHONPATH="$SCRIPT_DIR" chainlit run app.py --port 8000 -h 2>&1 | tee -a "$CHAINLIT_LOG"

@@ -1,8 +1,19 @@
-"""Pre-submission reviewer — runs 3 distinct reviewer personas per document.
+"""Replication-verdict persona reviewer — INTERNAL USE ONLY.
+
+NOT a chat tool. The chat-facing pre-submission review is the
+`pre_submission_review` tool in agent/tools.py (orchestrates a marked-up
+Google Doc copy, 5 specialists). That is the user-facing entry point.
+
+This module is a 3-persona prose reviewer (methodologist + domain_expert +
+skeptic + Sonnet consensus) used by ONE caller — the prereg replication
+loop scheduled job (agent/jobs/prereg_replication_loop.py). It critiques
+T+7 verdict documents (raw text) before they are published. Do NOT wire
+this into any user-facing path; it intentionally produces a prose review
+document, which is the wrong output shape for manuscript review.
 
 Usage:
-    from agent.submission_review import pre_submission_review
-    result = pre_submission_review(doc_text, venue="nature_tier")
+    from agent.submission_review import replication_verdict_review
+    result = replication_verdict_review(doc_text, venue="journal_generic")
 """
 import json
 import os
@@ -177,7 +188,7 @@ def _parse_review_json(raw: str, persona: str) -> dict:
         }
 
 
-def pre_submission_review(
+def replication_verdict_review(
     doc_text: str,
     venue: str = "journal_generic",
     personas: list[str] | None = None,
@@ -252,7 +263,7 @@ def pre_submission_review(
                 usage.model_dump() if hasattr(usage, "model_dump") else dict(usage)
             )
             cost_tracking.record_call(
-                job_name="pre_submission_review",
+                job_name="replication_verdict_review",
                 model=_OPUS_MODEL,
                 usage=usage_dict,
             )
@@ -303,7 +314,7 @@ def pre_submission_review(
             c_usage.model_dump() if hasattr(c_usage, "model_dump") else dict(c_usage)
         )
         cost_tracking.record_call(
-            job_name="pre_submission_review_consensus",
+            job_name="replication_verdict_review_consensus",
             model=_SONNET_MODEL,
             usage=c_usage_dict,
         )
